@@ -233,21 +233,21 @@ class DocumentationController(
     private val documentationService: DocumentationService,
 ) {
 
-    //    @PostMapping("download/{docId}")
-//    fun downloadFile(
-//        @PathVariable docId: Long,
-//        @RequestParam format: String,
-//    ): ResponseEntity<ByteArray> {
-//        val fileBytes = documentationService.downloadFile(docId, format)
-//        val extension = format.lowercase()
-//        val fileName = "document_$docId.$extension"
-//        val contentType = getMediaType(extension)
-//
-//        return ResponseEntity.ok()
-//            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"$fileName\"")
-//            .contentType(contentType)
-//            .body(fileBytes)
-//    }
+        @PostMapping("download/{docId}")
+    fun downloadFile(
+        @PathVariable docId: Long,
+        @RequestParam format: String,
+    ): ResponseEntity<ByteArray> {
+        val fileBytes = documentationService.downloadFile(docId, format)
+        val extension = format.lowercase()
+        val fileName = "document_$docId.$extension"
+        val contentType = getMediaType(extension)
+
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"$fileName\"")
+            .contentType(contentType)
+            .body(fileBytes)
+    }
 
 
     @PostMapping

@@ -165,7 +165,7 @@ interface SampleService {
 }
 
 interface DocumentationService {
-    //    fun downloadFile(documentationId: Long, format: String): ByteArray
+    fun downloadFile(documentationId: Long, format: String): ByteArray
     fun create(dto: DocumentationRequestDto): DocumentationResponseDto
     fun update(id: Long, dto: DocumentationRequestDto): DocumentationResponseDto
     fun get(id: Long): DocumentationResponseDto
@@ -905,42 +905,46 @@ class DocumentationServiceImpl(
     private val sampleRepository: SampleRepository,
     private val sampleFieldRepository: SampleFieldRepository,
     private val userRepository: UserRepository,
-    private val userContextService: UserContextService
+    private val userContextService: UserContextService,
+    private val fileUtils: FileUtils,
+    private val formatConverters: List<FormatConverter>,
+    private val factory: ReplaceFileFactory,
+    private val exporters: List<Exporter>
 ) : DocumentationService {
 
-//    override fun downloadFile(documentationId: Long, format: String): ByteArray {
-//        val documentation = documentationRepository.findByIdAndDeletedFalse(documentationId)
-//            ?: throw ObjectIdNotFoundException(documentationId)
-//
-//        val replacements = documentation.sample.fields.mapNotNull { field ->
-//            documentation.values.find { it.field.id == field.id }
-//                ?.let { value -> field.keyName to (value.field.fieldReplaceType to value.value) }
-//        }.toMap()
-//
-//        val originalFileBytes = fileUtils.getFile(documentation.sample.filePath)
-//            .takeIf { it.exists() }
-//            ?.readBytes()
-//            ?: throw FileNotFoundException("File not found: ${documentation.sample.filePath}")
-//
-//        val extension = documentation.sample.filePath
-//            .substringAfterLast('.', "")
-//            .lowercase()
-//
-//        val docxBytes = if (extension == "docx") {
-//            originalFileBytes
-//        } else {
-//            formatConverters.find { it.supports(extension) }
-//                ?.toDocx(originalFileBytes)
-//                ?: throw FileFormatNotFoundException(extension)
-//        }
-//
-//        val replacedDocx = factory.replaceFile(ByteArrayInputStream(docxBytes), replacements)
-//
-//        val exporter = exporters.find { it.supports(format.lowercase()) }
-//            ?: throw FileFormatNotFoundException(format)
-//
-//        return exporter.export(replacedDocx, replacements)
-//    }
+    override fun downloadFile(documentationId: Long, format: String): ByteArray {
+        val documentation = documentationRepository.findByIdAndDeletedFalse(documentationId)
+            ?: throw ObjectIdNotFoundException(documentationId)
+
+        val replacements = documentation.sample.fields.mapNotNull { field ->
+            documentation.values.find { it.field.id == field.id }
+                ?.let { value -> field.keyName to (value.field.fieldReplaceType to value.value) }
+        }.toMap()
+
+        val originalFileBytes = fileUtils.getFile(documentation.sample.filePath)
+            .takeIf { it.exists() }
+            ?.readBytes()
+            ?: throw FileNotFoundException("File not found: ${documentation.sample.filePath}")
+
+        val extension = documentation.sample.filePath
+            .substringAfterLast('.', "")
+            .lowercase()
+
+        val docxBytes = if (extension == "docx") {
+            originalFileBytes
+        } else {
+            formatConverters.find { it.supports(extension) }
+                ?.toFormat(originalFileBytes)
+                ?: throw FileFormatNotFoundException(extension)
+        }
+
+        val replacedDocx = factory.replaceFile(ByteArrayInputStream(docxBytes), replacements)
+
+        val exporter = exporters.find { it.supports(format.lowercase()) }
+            ?: throw FileFormatNotFoundException(format)
+
+        return exporter.export(replacedDocx, replacements)
+    }
 
     @Transactional
     override fun create(dto: DocumentationRequestDto): DocumentationResponseDto {

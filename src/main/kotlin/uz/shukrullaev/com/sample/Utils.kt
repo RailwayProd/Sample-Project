@@ -62,7 +62,7 @@ interface Exporter : SupportType {
 }
 
 interface FormatConverter : SupportType {
-    fun toDocx(input: ByteArray): ByteArray
+    fun toFormat(input: ByteArray): ByteArray
 }
 
 
@@ -410,7 +410,7 @@ class PdfToDocxConverter : FormatConverter {
 
     override fun supports(extension: String) = extension.equals("pdf", true)
 
-    override fun toDocx(input: ByteArray): ByteArray {
+    override fun toFormat(input: ByteArray): ByteArray {
         val inputStream = ByteArrayInputStream(input)
         val outputStream = ByteArrayOutputStream()
 
@@ -436,7 +436,7 @@ class CsvToDocxConverter : FormatConverter {
 
     override fun supports(extension: String) = extension.equals("csv", ignoreCase = true)
 
-    override fun toDocx(input: ByteArray): ByteArray {
+    override fun toFormat(input: ByteArray): ByteArray {
         val reader = BufferedReader(InputStreamReader(ByteArrayInputStream(input)))
         val doc = XWPFDocument()
 
@@ -463,7 +463,7 @@ class TxtToDocxConverter : FormatConverter {
 
     override fun supports(extension: String) = extension.equals("txt", ignoreCase = true)
 
-    override fun toDocx(input: ByteArray): ByteArray {
+    override fun toFormat(input: ByteArray): ByteArray {
         val reader = BufferedReader(InputStreamReader(ByteArrayInputStream(input)))
         val doc = XWPFDocument()
 
@@ -593,7 +593,7 @@ class DownloadWorker(
                             originalBytes
                         } else {
                             formatConverters.find { it.supports(ext) }
-                                ?.toDocx(originalBytes) ?: originalBytes
+                                ?.toFormat(originalBytes) ?: originalBytes
                         }
 
                         val replacedDocx = factory.replaceFile(ByteArrayInputStream(docxBytes), replacements)
