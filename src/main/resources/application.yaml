@@ -1,4 +1,9 @@
 spring:
+#  datasource:
+#    driver-class-name: org.postgresql.Driver
+#    url: jdbc:postgresql://localhost:5432/sampleZeroOne
+#    username: sampleZeroOne
+#    password: 123
   datasource:
     driver-class-name: org.postgresql.Driver
     url: jdbc:postgresql://dpg-d26ccdnfte5s73emt2lg-a:5432/sample_db_5xtj
