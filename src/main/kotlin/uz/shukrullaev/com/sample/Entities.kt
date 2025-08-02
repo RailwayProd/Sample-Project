@@ -104,7 +104,7 @@ class Documentation(
 @Entity
 @Table(name = "documentation_value")
 class DocumentationValue(
-    @Column(nullable = false) var value: String,
+    @Column(nullable = true) var value: String?,
     @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "field_id", nullable = false) var field: SampleField,
     @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "documentation_id", nullable = false)
     var documentation: Documentation,

@@ -78,6 +78,8 @@ interface SampleRepository : BaseRepository<Sample> {
 
     fun findAllByIdInAndDeletedFalse(ids: Set<Long>): List<Sample>
 
+    fun existsByIdAndDeletedTrue(id: Long): Boolean
+
     @Query(value = "select * from sample where template_hash = :templateHash limit 1", nativeQuery = true)
     fun findByTemplateHashAndDeletedFalse(templateHash: String): Sample?
 }

@@ -78,6 +78,12 @@ class GlobalExceptionHandler(
 
             is FileNotReadyException -> ResponseEntity.badRequest()
                 .body(ex.getErrorMessage(errorMessageSource, ex.infoStatus))
+
+            is SampleDeletedException -> ResponseEntity.badRequest()
+                .body(ex.getErrorMessage(errorMessageSource, ex.sampleId))
+
+            is SampleValueIsRequiredException -> ResponseEntity.badRequest()
+                .body(ex.getErrorMessage(errorMessageSource, ex.sampleId, ex.value, ex.valueId))
         }
     }
 }

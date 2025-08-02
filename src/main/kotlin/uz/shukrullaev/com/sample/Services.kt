@@ -100,8 +100,8 @@ interface AuthService {
     fun login(username: String, password: String): TokenDTO?
     fun registration(userRequestDto: UserRequestDto): UserResponseDto
     fun me(): UserResponseDto?
-
     fun changePassword(oldPassword: String, newPassword: String)
+    fun changePasswordForAdmin(username: String, password: String)
 }
 
 interface UserService {
@@ -258,6 +258,13 @@ class AuthServiceImpl(
             .also { validatePasswords(oldPassword, newPassword, it) }
             .run { updatePassword(newPassword) }
             .let(userRepository::save)
+    }
+
+    override fun changePasswordForAdmin(username: String, password: String) {
+        userRepository.findByUsernameAndDeletedFalse(username)
+            .orElseThrow{UserNameFoundException(username)}
+            .apply { this.password = passwordEncoder.encode(password) }
+            .also { userRepository.save(it) }
     }
 
     private fun validatePasswords(old: String, new: String, user: User) {
@@ -952,12 +959,13 @@ class DocumentationServiceImpl(
         val user: User =
             userRepository.findByUsernameAndDeletedFalse(userName)
                 .orElseThrow { throw uz.shukrullaev.com.sample.UsernameNotFoundException(userName) }
+        sampleRepository.existsByIdAndDeletedTrue(dto.sampleId).runIfTrue { throw SampleDeletedException(dto.sampleId) }
         return sampleRepository.findByIdAndDeletedFalse(dto.sampleId)
             ?.also {
                 documentationRepository.existsByNameAndDeletedFalse(dto.name)
                     .runIfTrue { throw DocumentNameAlreadyExistsException(dto.name) }
             }?.let { sample ->
-
+                checkValues(sample, dto.values)
                 dto.toEntity(sample, user, user.organization!!).let(documentationRepository::save).let { doc ->
                     sampleFieldRepository.findAllBySampleIdAndDeletedFalse(sample.id!!)
                         .mapNotNull { field ->
@@ -980,6 +988,8 @@ class DocumentationServiceImpl(
                         .runIfTrue { throw DocumentNameAlreadyExistsException(dto.name) }
                 val sample = sampleRepository.findByIdAndDeletedFalse(dto.sampleId)
                     ?: throw ObjectIdNotFoundException(dto.sampleId)
+                sampleRepository.existsByIdAndDeletedTrue(dto.sampleId)
+                    .runIfTrue { throw SampleDeletedException(dto.sampleId) }
 
                 checkValues(sample, dto.values)
 
@@ -1146,9 +1156,15 @@ class DocumentationServiceImpl(
         }?.let { value ->
             throw SampleConflictException(
                 sample.id,
+                value.value,
                 value.fieldId
             )
+        } ?: sample.fields.firstOrNull { field ->
+            field.isRequired && values.none { value -> value.fieldId == field.id && value.value != null }
+        }?.let { missingField ->
+            throw SampleValueIsRequiredException(sample.id, null, missingField.id)
         }
+
     }
 }
 

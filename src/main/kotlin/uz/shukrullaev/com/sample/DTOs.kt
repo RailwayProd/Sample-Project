@@ -216,14 +216,14 @@ fun Documentation.toDTO() = DocumentationResponseDto(
 )
 
 data class DocumentationValueRequestDto(
-    @field:NotBlank val value: String,
+    @field:NotBlank val value: String?,
     val fieldId: Long,
     val documentationId: Long,
 )
 
 data class DocumentationValueResponseDto(
     val id: Long,
-    val value: String,
+    val value: String?,
     val field: SampleFieldResponseDto,
 )
 

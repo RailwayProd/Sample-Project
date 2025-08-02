@@ -73,6 +73,8 @@ enum class ExceptionsCode(val code: Int) {
     FILE_NOT_READY(115),
     PATH_NULL(116),
     FILE_NOT_FOUND(117),
+    SAMPLE_DELETED(118),
+    REQUIRED_VALUE(118),
 //    FILE_FORMAT_NOT_FOUND_EXCEPTION(105),
 
 }

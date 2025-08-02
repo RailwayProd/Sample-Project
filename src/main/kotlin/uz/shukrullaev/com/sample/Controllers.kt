@@ -94,6 +94,10 @@ class UserController(
     @PostMapping("set-password")
     fun changePassword(@RequestParam oldPassword: String, @RequestParam newPassword: String) =
         authService.changePassword(oldPassword, newPassword)
+    @PostMapping("set-password-admin")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN')")
+    fun changePasswordForAdmin(@RequestParam username: String, @RequestParam password: String) =
+        authService.changePasswordForAdmin(username, password)
 
     @DeleteMapping("{id}")
     @PreAuthorize("hasAnyAuthority('ROLE_DIRECTOR', 'ROLE_ADMIN')")

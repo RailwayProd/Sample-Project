@@ -26,7 +26,9 @@ sealed class ExceptionUtil(message: String? = null) : RuntimeException(message) 
 
 class ObjectIdNotFoundException(val id: Long? = null) : ExceptionUtil() {
     override fun exceptionType() = ExceptionsCode.ID_NOT_FOUND
-}class ObjectIdsNotFoundException(val id: List<Long?>? = null) : ExceptionUtil() {
+}
+
+class ObjectIdsNotFoundException(val id: List<Long?>? = null) : ExceptionUtil() {
     override fun exceptionType() = ExceptionsCode.ID_NOT_FOUND
 }
 
@@ -51,7 +53,8 @@ class SampleNameNotFoundException(val name: String? = null) : ExceptionUtil() {
     override fun exceptionType() = ExceptionsCode.SAMPLE_NOT_FOUND
 }
 
-class SampleConflictException(val sampleId: Long? = null, val valueId: Long? = null) : ExceptionUtil() {
+class SampleConflictException(val sampleId: Long? = null, val value: String? = null, val valueId: Long? = null) :
+    ExceptionUtil() {
     override fun exceptionType() = ExceptionsCode.SAMPLE_CONFLICT
 }
 
@@ -97,4 +100,13 @@ class PathNullException : ExceptionUtil() {
 
 class FileNotFoundException : ExceptionUtil() {
     override fun exceptionType() = ExceptionsCode.FILE_NOT_FOUND
+}
+
+class SampleDeletedException(val sampleId: Long? = null) : ExceptionUtil() {
+    override fun exceptionType() = ExceptionsCode.SAMPLE_DELETED
+}
+
+class SampleValueIsRequiredException(val sampleId: Long? = null, val value: String? = null, val valueId: Long?) :
+    ExceptionUtil() {
+    override fun exceptionType() = ExceptionsCode.REQUIRED_VALUE
 }

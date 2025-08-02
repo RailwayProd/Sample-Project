@@ -5,6 +5,7 @@ import com.opencsv.CSVReaderBuilder
 import jakarta.annotation.PreDestroy
 import org.apache.poi.xwpf.usermodel.XWPFDocument
 import org.apache.poi.xwpf.usermodel.XWPFRun
+import org.jodconverter.core.DocumentConverter
 import org.jodconverter.core.document.DefaultDocumentFormatRegistry
 import org.jodconverter.core.office.OfficeManager
 import org.jodconverter.local.LocalConverter
@@ -50,14 +51,14 @@ interface TextExtractor : SupportType {
 
 interface ReplaceFileFactory : SupportType {
     fun replaceFile(
-        template: InputStream, replacements: Map<String, Pair<FieldReplaceType, String>>,
+        template: InputStream, replacements: Map<String, Pair<FieldReplaceType, String?>>,
     ): ByteArray
 }
 
 interface Exporter : SupportType {
     fun export(
         fileByteArray: ByteArray,
-        replacements: Map<String, Pair<FieldReplaceType, String>>,
+        replacements: Map<String, Pair<FieldReplaceType, String?>>,
     ): ByteArray
 }
 
@@ -167,7 +168,7 @@ class DocxReplaceFactoryImpl : ReplaceFileFactory {
 
     override fun replaceFile(
         template: InputStream,
-        replacements: Map<String, Pair<FieldReplaceType, String>>,
+        replacements: Map<String, Pair<FieldReplaceType, String?>>,
     ): ByteArray {
         val doc = XWPFDocument(template)
         doc.paragraphs.forEach { paragraph ->
@@ -192,7 +193,7 @@ class DocxReplaceFactoryImpl : ReplaceFileFactory {
 
     private fun replaceRuns(
         runs: List<XWPFRun>,
-        replacements: Map<String, Pair<FieldReplaceType, String>>,
+        replacements: Map<String, Pair<FieldReplaceType, String?>>,
     ) {
         for (i in runs.indices) {
             val run = runs[i]
@@ -204,7 +205,7 @@ class DocxReplaceFactoryImpl : ReplaceFileFactory {
                 val rawKey = match.groupValues[1].ifBlank { match.value }
                 val (type, value) = replacements[rawKey] ?: return@forEach
                 if (type == FieldReplaceType.REPLACE) {
-                    replaced = replaced.replace(match.value, value)
+                    value?.let { replaced = replaced.replace(match.value, value) }
                 }
             }
 
@@ -228,7 +229,7 @@ class CsvExporter : Exporter {
 
     override fun export(
         fileByteArray: ByteArray,
-        replacements: Map<String, Pair<FieldReplaceType, String>>,
+        replacements: Map<String, Pair<FieldReplaceType, String?>>,
     ): ByteArray {
         val outputStream = ByteArrayOutputStream()
         val writer = OutputStreamWriter(outputStream, Charsets.UTF_8)
@@ -250,7 +251,7 @@ class DocxExporter : Exporter {
 
     override fun export(
         fileByteArray: ByteArray,
-        replacements: Map<String, Pair<FieldReplaceType, String>>,
+        replacements: Map<String, Pair<FieldReplaceType, String?>>,
     ): ByteArray = fileByteArray
 }
 
@@ -260,12 +261,16 @@ class PdfExporter(
 ) : Exporter {
 
     override fun supports(extension: String) = extension.equals("pdf", true)
-
     override fun export(
         fileByteArray: ByteArray,
-        replacements: Map<String, Pair<FieldReplaceType, String>>,
+        replacements: Map<String, Pair<FieldReplaceType, String?>>,
     ): ByteArray {
-        return pdfConverter.convertDocxToPdf(fileByteArray)
+        return try {
+            pdfConverter.convertDocxToPdf(fileByteArray)
+        } catch (e: Exception) {
+            println("⚠️ PDF conversion failed: ${e.message}")
+            ByteArray(0)
+        }
     }
 }
 
@@ -277,7 +282,7 @@ class TxtExporter : Exporter {
 
     override fun export(
         fileByteArray: ByteArray,
-        replacements: Map<String, Pair<FieldReplaceType, String>>,
+        replacements: Map<String, Pair<FieldReplaceType, String?>>,
     ): ByteArray {
         val content = replacements.entries.joinToString("\n") { (key, value) ->
             "$key: ${value.second}"
@@ -365,23 +370,61 @@ class FileUtils {
 @Component
 class PdfConverter {
 
-    private val officeManager: OfficeManager = LocalOfficeManager.builder()
-        .portNumbers(2004)
-        .officeHome(File("C:/Program Files/LibreOffice"))
-        .install().build()
+    private val officeManager: OfficeManager?
+    private val converter: DocumentConverter?
+    private val isAvailable: Boolean
 
     init {
-        officeManager.start()
+        var started = false
+        var manager: OfficeManager? = null
+        var docConverter: DocumentConverter? = null
+
+        try {
+            val possiblePaths = listOf(
+                File("/usr/lib/libreoffice"),
+                File("/opt/libreoffice"),
+                File("/usr/local/libreoffice"),
+                File("C:/Program Files/LibreOffice")
+            )
+
+            val officeHome = possiblePaths.firstOrNull { it.exists() }
+
+            if (officeHome != null) {
+                manager = LocalOfficeManager.builder()
+                    .officeHome(officeHome)
+                    .portNumbers(2004)
+                    .install()
+                    .build()
+                manager.start()
+                started = true
+
+                docConverter = LocalConverter.builder()
+                    .officeManager(manager)
+                    .build()
+
+                println("✅ LibreOffice (PDF) started from: ${officeHome.absolutePath}")
+            } else {
+                println("⚠️ LibreOffice not found (PDF converter). Skipping setup.")
+            }
+        } catch (e: Exception) {
+            println("❌ Failed to start LibreOffice (PDF): ${e.message}")
+        }
+
+        this.officeManager = manager
+        this.converter = docConverter
+        this.isAvailable = started
     }
 
     fun convertDocxToPdf(docxBytes: ByteArray): ByteArray {
+        if (!isAvailable || officeManager == null || converter == null) {
+            throw IllegalStateException("LibreOffice is not available for PDF conversion.")
+        }
+
         val inputStream = ByteArrayInputStream(docxBytes)
         val outputStream = ByteArrayOutputStream()
 
-        LocalConverter.builder()
-            .officeManager(officeManager)
-            .build()
-            .convert(inputStream)
+        converter.convert(inputStream)
+            .`as`(DefaultDocumentFormatRegistry.DOCX)
             .to(outputStream)
             .`as`(DefaultDocumentFormatRegistry.PDF)
             .execute()
@@ -389,35 +432,82 @@ class PdfConverter {
         return outputStream.toByteArray()
     }
 
-
     @PreDestroy
     fun stopOffice() {
-        officeManager.stop()
+        try {
+            officeManager?.stop()
+            println("🛑 LibreOffice (PDF) stopped.")
+        } catch (e: Exception) {
+            println("⚠️ Failed to stop LibreOffice (PDF): ${e.message}")
+        }
     }
 }
 
-@Service
+
+@Component
 class PdfToDocxConverter : FormatConverter {
 
-    private val officeManager: OfficeManager = LocalOfficeManager.builder()
-        .portNumbers(2003)
-        .officeHome(File("C:/Program Files/LibreOffice"))
-        .install().build()
+    private val officeManager: OfficeManager?
+    private val converter: DocumentConverter?
+    private val isAvailable: Boolean
 
     init {
-        officeManager.start()
+        var started = false
+        var manager: OfficeManager? = null
+        var docConverter: DocumentConverter? = null
+
+        try {
+            val possiblePaths = listOf(
+                File("/usr/lib/libreoffice"),
+                File("/opt/libreoffice"),
+                File("/usr/local/libreoffice"),
+                File("C:/Program Files/LibreOffice")
+            )
+
+            val officeHome = possiblePaths.firstOrNull { it.exists() }
+
+            if (officeHome != null) {
+                manager = LocalOfficeManager.builder()
+                    .officeHome(officeHome)
+                    .portNumbers(2003)
+                    .install()
+                    .build()
+                manager.start()
+                started = true
+
+                docConverter = LocalConverter.builder()
+                    .officeManager(manager)
+                    .build()
+
+                println("✅ LibreOffice started from: ${officeHome.absolutePath}")
+            } else {
+                println("⚠️ LibreOffice not found. PDF to DOCX conversion will not work.")
+            }
+        } catch (e: Exception) {
+            println("❌ LibreOffice failed to start: ${e.message}")
+            // ❌ OLDIN throw qilayotganding — ENDI QILMAYMIZ
+            // throw IllegalStateException("LibreOffice manager could not be started: ${e.message}", e)
+        }
+
+        this.officeManager = manager
+        this.converter = docConverter
+        this.isAvailable = started
     }
 
-    override fun supports(extension: String) = extension.equals("pdf", true)
+    override fun supports(extension: String): Boolean {
+        return extension.equals("pdf", ignoreCase = true)
+    }
 
     override fun toFormat(input: ByteArray): ByteArray {
+        if (!isAvailable || officeManager == null || converter == null) {
+            throw IllegalStateException("LibreOffice is not available.")
+        }
+
         val inputStream = ByteArrayInputStream(input)
         val outputStream = ByteArrayOutputStream()
 
-        LocalConverter.builder()
-            .officeManager(officeManager)
-            .build()
-            .convert(inputStream)
+        converter.convert(inputStream)
+            .`as`(DefaultDocumentFormatRegistry.PDF)
             .to(outputStream)
             .`as`(DefaultDocumentFormatRegistry.DOCX)
             .execute()
@@ -427,9 +517,15 @@ class PdfToDocxConverter : FormatConverter {
 
     @PreDestroy
     fun stopOffice() {
-        officeManager.stop()
+        try {
+            officeManager?.stop()
+            println("🛑 LibreOffice stopped.")
+        } catch (e: Exception) {
+            println("⚠️ Failed to stop LibreOffice: ${e.message}")
+        }
     }
 }
+
 
 @Service
 class CsvToDocxConverter : FormatConverter {
@@ -507,9 +603,7 @@ class UserContextService(
 }
 
 @Service
-class SseEmitterService(
-    private val downloadInfoRepository: DownloadInfoRepository
-) {
+class SseEmitterService {
 
     private val emitters = CopyOnWriteArrayList<SseEmitter>()
 
@@ -540,7 +634,7 @@ class SseEmitterService(
             }
         }
 
-        emitters.removeAll(deadEmitters)
+        emitters.removeAll(deadEmitters.toSet())
     }
 }
 
