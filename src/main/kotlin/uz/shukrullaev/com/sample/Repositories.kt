@@ -116,6 +116,7 @@ interface DocumentationRepository : BaseRepository<Documentation> {
     fun findAllByDownloadInfoIdAndDeletedFalse(@Param("infoId") infoId: Long): List<Documentation>
 
     fun existsByNameAndDeletedFalse(name: String): Boolean
+    fun existsByName(name: String): Boolean
 
 
     fun findAllBySampleIdAndDeletedFalse(sampleId: Long, pageable: Pageable): Page<Documentation>

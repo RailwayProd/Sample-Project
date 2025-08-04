@@ -81,7 +81,7 @@ class UserController(
     }
 
     @PutMapping("{id}")
-    @PreAuthorize("hasAnyAuthority('ROLE_DIRECTOR', 'ROLE_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('ROLE_DIRECTOR', 'ROLE_ADMIN','ROLE_OPERATOR')")
     fun update(@PathVariable id: Long, @RequestBody dto: UserRequestForUpdateDto) = userService.update(id, dto)
 
     @GetMapping("{id}")

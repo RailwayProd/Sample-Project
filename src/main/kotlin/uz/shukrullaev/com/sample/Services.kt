@@ -262,7 +262,7 @@ class AuthServiceImpl(
 
     override fun changePasswordForAdmin(username: String, password: String) {
         userRepository.findByUsernameAndDeletedFalse(username)
-            .orElseThrow{UserNameFoundException(username)}
+            .orElseThrow { UserNameFoundException(username) }
             .apply { this.password = passwordEncoder.encode(password) }
             .also { userRepository.save(it) }
     }
@@ -322,18 +322,21 @@ class UserServiceImpl(
         var role = getUserRoles().firstOrNull() ?: throw AccessDeniedException()
 
         val organization = resolveOrganization(dto.organizationId, role, currentUsername)
-
+        val currentUser =
+            userRepository.findByUsernameAndDeletedFalse(currentUsername).orElseThrow { UserNameFoundException() }
+        if (role != Role.DIRECTOR && currentUser!!.id != id) throw AccessDeniedException()
         return userRepository.findByIdAndDeletedFalse(id)
             ?.apply {
                 dto.fullName?.let { fullName = it }
+                if (dto.username != null && this.username != dto.username)
+                    userRepository.findByUsername(dto.username).isPresent.runIfTrue { throw UsernameAlreadyException(dto.username) }
                 dto.username?.let { username = it }
 
 
                 when (role) {
                     Role.ADMIN -> dto.role?.let { role = it }
                     Role.DIRECTOR -> this.role = dto.role?.takeIf { it != Role.ADMIN } ?: Role.OPERATOR
-
-                    else -> throw AccessDeniedException()
+                    Role.OPERATOR -> Role.OPERATOR
                 }
 
                 status = dto.status ?: status
@@ -416,16 +419,19 @@ class UserServiceImpl(
             ?.let { organizationRepository.findByIdAndDeletedFalse(it) }
             ?: throw ObjectIdNotFoundException(organizationId)
 
-        Role.DIRECTOR -> userRepository.findByUsername(currentUsername)
+        Role.DIRECTOR -> getOrganizationForOperatorAndDirector(currentUsername)
+
+        Role.OPERATOR -> getOrganizationForOperatorAndDirector(currentUsername)
+    }
+
+    private fun getOrganizationForOperatorAndDirector(currentUsername: String): Organization =
+        userRepository.findByUsername(currentUsername)
             .map { user ->
                 val orgId = user.organization?.id ?: throw OrganizationIdIsNullException()
                 organizationRepository.findByIdAndDeletedFalse(orgId)
                     ?: throw OrganizationIdIsNullException()
             }
             .orElseThrow { OrganizationIdIsNullException() }
-
-        else -> throw AccessDeniedException()
-    }
 
 
     private fun createSpecification(
@@ -607,6 +613,7 @@ class OrganizationServiceImpl(
 class SampleServiceImpl(
     private val sampleRepository: SampleRepository,
     private val sampleFieldRepository: SampleFieldRepository,
+    private val samplePermissionServiceImpl: SamplePermissionServiceImpl,
     private val extractors: List<TextExtractor>,
     private val extractorFieldExecutor: ExtractorFieldExecutor,
     private val fileUtils: FileUtils,
@@ -756,13 +763,17 @@ class SampleServiceImpl(
                 val role = getUserRoles().firstOrNull() ?: throw AccessDeniedException()
 
                 when (role) {
-                    Role.OPERATOR -> if (sample.owner.id != user.id) throw AccessDeniedException()
+                    Role.OPERATOR -> if (sample.organization.id != user.organization?.id
+                    ) throw AccessDeniedException()
+
                     Role.DIRECTOR -> if (sample.organization.id != user.organization?.id) throw AccessDeniedException()
                     else -> throw AccessDeniedException()
                 }
             }
             ?.run {
-                takeIf { it.name != name }?.let {
+                this.takeIf {
+                    it.name != name
+                }?.let {
                     sampleRepository.findByNameAndDeletedFalse(name)
                         ?.let { throw SampleNameAlreadyExistsException(name) }
                     it.name = name
@@ -881,8 +892,12 @@ class SampleServiceImpl(
                 val templateHash = fileUtils.calculateSHA256(file.bytes)
                 val text = extractor.extractText(file)
 
-                sampleRepository.findByNameAndDeletedFalse(name)?.let {
-                    throw SampleNameAlreadyExistsException(name)
+                sample.takeIf {
+                    it.name != name
+                }?.let {
+                    sampleRepository.findByNameAndDeletedFalse(name)?.let {
+                        throw SampleNameAlreadyExistsException(name)
+                    }
                 }
 
                 val fields = extractorFieldExecutor.parseFieldsFromText(text, sample)
@@ -896,7 +911,6 @@ class SampleServiceImpl(
                 sample.name = name
 
                 val savedSample = sampleRepository.save(sample)
-                sampleFieldRepository.saveAll(fields)
 
                 return savedSample.toDTO()
             }
@@ -966,6 +980,7 @@ class DocumentationServiceImpl(
                     .runIfTrue { throw DocumentNameAlreadyExistsException(dto.name) }
             }?.let { sample ->
                 checkValues(sample, dto.values)
+                if (documentationRepository.existsByName(dto.name)) throw DocumentNameAlreadyExistsException()
                 dto.toEntity(sample, user, user.organization!!).let(documentationRepository::save).let { doc ->
                     sampleFieldRepository.findAllBySampleIdAndDeletedFalse(sample.id!!)
                         .mapNotNull { field ->
@@ -984,7 +999,7 @@ class DocumentationServiceImpl(
         documentationRepository.findByIdAndDeletedFalse(id)
             ?.let { documentation ->
                 if (dto.name != documentation.name)
-                    documentationRepository.existsByNameAndDeletedFalse(dto.name)
+                    documentationRepository.existsByName(dto.name)
                         .runIfTrue { throw DocumentNameAlreadyExistsException(dto.name) }
                 val sample = sampleRepository.findByIdAndDeletedFalse(dto.sampleId)
                     ?: throw ObjectIdNotFoundException(dto.sampleId)
