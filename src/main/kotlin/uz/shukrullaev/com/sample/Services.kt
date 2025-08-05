@@ -239,6 +239,7 @@ class AuthServiceImpl(
                     (passwordEncoder.matches(password, user.password)).runIfFalse {
                         throw UsernameOrPasswordIncorrect(username, password)
                     }
+                    (user.role != Role.ADMIN && organizationRepository.existsByIdAndDeletedFalse(user.organization!!.id!!) == false).runIfTrue { throw UsernameOrPasswordIncorrect() }
                     jwtUtil.generateToken(user)
                 }
 
