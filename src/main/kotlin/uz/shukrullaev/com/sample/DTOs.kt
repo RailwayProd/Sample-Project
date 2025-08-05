@@ -131,6 +131,7 @@ data class SampleResponseDto(
     val id: Long,
     val name: String,
     val sampleFields: List<SampleFieldResponseDto>? = null,
+    val permissions: Set<Permissions> = emptySet()
 )
 
 fun SampleRequestDto.toEntity(owner: User, organization: Organization) = Sample(
@@ -147,6 +148,15 @@ fun Sample.toDTO() = SampleResponseDto(
     sampleFields = this.fields.map { it.toDTO() }
 )
 
+fun Sample.toDTO(currentUser: User) = SampleResponseDto(
+    id = this.id!!,
+    name = this.name,
+    sampleFields = this.fields.map { it.toDTO() },
+    permissions = this.permissions
+        .filter { it.user.id == currentUser.id && !it.deleted }
+        .map { it.permission }
+        .toSet()
+)
 data class SampleFieldRequestDto(
     val id: Long? = null,
     @field:NotBlank val keyName: String,
@@ -193,6 +203,7 @@ data class DocumentationResponseDto(
     val name: String,
     val sample: SampleResponseDto,
     val values: List<DocumentationValueResponseDto> = emptyList(),
+    val permissions: List<Permissions> = emptyList()
 )
 
 
@@ -214,6 +225,18 @@ fun Documentation.toDTO() = DocumentationResponseDto(
     sample = this.sample.toDTO(),
     values = this.values.map { it.toDTO() }
 )
+
+fun Documentation.toDTO(currentUser: User): DocumentationResponseDto {
+    return DocumentationResponseDto(
+        id = this.id!!,
+        name = this.name,
+        sample = this.sample.toDTO(),
+        values = this.values.map { it.toDTO() },
+        permissions = this.permissions
+            .filter { it.user.id == currentUser.id && !it.deleted }
+            .map { it.permission }
+    )
+}
 
 data class DocumentationValueRequestDto(
     @field:NotBlank val value: String?,

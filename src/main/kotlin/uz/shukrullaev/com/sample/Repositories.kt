@@ -74,6 +74,9 @@ interface UserRepository : BaseRepository<User> {
 @Repository
 interface SampleRepository : BaseRepository<Sample> {
     fun existsByOwnerIdAndDeletedFalse(ownerId: Long): Boolean
+
+    fun existsByIdAndOwnerIdAndDeletedFalse(id: Long, ownerId: Long): Boolean
+
     fun findByNameAndDeletedFalse(name: String): Sample?
 
     fun findAllByIdInAndDeletedFalse(ids: Set<Long>): List<Sample>
@@ -94,16 +97,20 @@ interface SampleFieldRepository : BaseRepository<SampleField> {
 interface DocumentationRepository : BaseRepository<Documentation> {
 
     fun existsByOwnerIdAndDeletedFalse(ownerId: Long): Boolean
+    fun existsByIdAndOwnerIdAndDeletedFalse(id: Long, ownerId: Long): Boolean
+
 
     fun findAllByIdInAndDeletedFalse(ids: Set<Long>): List<Documentation>
 
-    @Query("""
+    @Query(
+        """
     select distinct d from Documentation d
     join fetch d.sample s
     join fetch s.fields f
     join fetch d.values v
     where d.id in :ids and d.deleted = false
-""")
+"""
+    )
     fun findAllByIdInAndDeletedFalse(@Param("ids") ids: List<Long>): List<Documentation>
 
     @Query(

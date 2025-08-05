@@ -333,11 +333,18 @@ class UserServiceImpl(
                 dto.username?.let { username = it }
 
 
-                when (role) {
-                    Role.ADMIN -> dto.role?.let { role = it }
-                    Role.DIRECTOR -> this.role = dto.role?.takeIf { it != Role.ADMIN } ?: Role.OPERATOR
+                this.role = when (role) {
+                    Role.ADMIN -> dto.role ?: this.role
+
+                    Role.DIRECTOR -> when {
+                        dto.role == null && this.id == currentUser.id -> this.role
+                        dto.role != null && dto.role != Role.ADMIN -> dto.role
+                        else -> Role.OPERATOR
+                    }
+
                     Role.OPERATOR -> Role.OPERATOR
                 }
+
 
                 status = dto.status ?: status
                 this.organization = organization
@@ -672,7 +679,7 @@ class SampleServiceImpl(
             orderDirection = orderDirection
         )
 
-        return sampleRepository.findAll(spec, pageable).map { it.toDTO() }
+        return sampleRepository.findAll(spec, pageable).map { it.toDTO(user) }
     }
 
 
@@ -1070,7 +1077,7 @@ class DocumentationServiceImpl(
             orderDirection = orderDirection
         )
 
-        return documentationRepository.findAll(spec, pageable).map { it.toDTO() }
+        return documentationRepository.findAll(spec, pageable).map { it.toDTO(user) }
     }
 
 
@@ -1320,7 +1327,7 @@ class DocumentationPermissionServiceImpl(
     override fun hasPermission(userId: Long, targetId: Long, permission: Permissions): Boolean =
         permissionRepository.existsByUserIdAndDocumentationIdAndPermissionIn(
             userId, targetId, listOf(permission, Permissions.CRUD)
-        ) || documentationRepository.existsByOwnerIdAndDeletedFalse(getUserId())
+        ) || documentationRepository.existsByIdAndOwnerIdAndDeletedFalse(targetId, getUserId())
 }
 
 @Service("samplePermissionService")
@@ -1355,7 +1362,7 @@ class SamplePermissionServiceImpl(
     override fun hasPermission(userId: Long, targetId: Long, permission: Permissions): Boolean =
         permissionRepository.existsByUserIdAndSampleIdAndPermissionIn(
             userId, targetId, listOf(permission, Permissions.CRUD)
-        ) || sampleRepository.existsByOwnerIdAndDeletedFalse(getUserId())
+        ) || sampleRepository.existsByIdAndOwnerIdAndDeletedFalse(targetId, getUserId())
 }
 
 private fun <T : BaseEntity, P : AbstractPermission<T>> extractRoleBasedPredicates(
