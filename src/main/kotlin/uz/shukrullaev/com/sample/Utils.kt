@@ -205,14 +205,14 @@ class DocxReplaceFactoryImpl : ReplaceFileFactory {
                 val rawKey = match.groupValues[1].ifBlank { match.value }
                 val (type, value) = replacements[rawKey] ?: return@forEach
                 if (type == FieldReplaceType.REPLACE) {
-                    value?.let { replaced = replaced.replace(match.value, value) }
+                    replaced = value?.let { replaced.replace(match.value, value) } ?: ""
                 }
             }
 
             val nextRunText = runs.getOrNull(i + 1)?.getText(0)?.trim()
             val (type, value) = replacements[text] ?: (null to null)
             if (type == FieldReplaceType.RIGHT && nextRunText == ":") {
-                replaced = "$text: $value"
+                replaced = value?.let { "$text: $value" } ?: "$text: "
                 runs[i + 1].setText("", 0)
             }
 

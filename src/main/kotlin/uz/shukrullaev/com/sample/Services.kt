@@ -465,8 +465,8 @@ class UserServiceImpl(
 
 
             val order = when (orderDirection) {
-                OrderDirection.DESC -> builder.desc(from.get<Long>("id"))
-                else -> builder.asc(from.get<Long>("id"))
+                OrderDirection.DESC -> builder.desc(from.get<Long>("createdDate"))
+                else -> builder.asc(from.get<Long>("createdDate"))
             }
             query?.orderBy(order)
 
@@ -505,8 +505,8 @@ class UserServiceImpl(
             }
 
             val order = when (orderDirection) {
-                OrderDirection.DESC -> builder.desc(from.get<Long>("id"))
-                else -> builder.asc(from.get<Long>("id"))
+                OrderDirection.DESC -> builder.desc(from.get<Long>("createdDate"))
+                else -> builder.asc(from.get<Long>("createdDate"))
             }
             query?.orderBy(order)
 
@@ -587,8 +587,8 @@ class OrganizationServiceImpl(
             query?.distinct(true)
 
             val order = when (orderDirection) {
-                OrderDirection.DESC -> builder.desc(from.get<Long>("id"))
-                else -> builder.asc(from.get<Long>("id"))
+                OrderDirection.DESC -> builder.desc(from.get<Long>("createdDate"))
+                else -> builder.asc(from.get<Long>("createdDate"))
             }
             query?.orderBy(order)
 
@@ -613,7 +613,6 @@ class OrganizationServiceImpl(
 class SampleServiceImpl(
     private val sampleRepository: SampleRepository,
     private val sampleFieldRepository: SampleFieldRepository,
-    private val samplePermissionServiceImpl: SamplePermissionServiceImpl,
     private val extractors: List<TextExtractor>,
     private val extractorFieldExecutor: ExtractorFieldExecutor,
     private val fileUtils: FileUtils,
@@ -871,8 +870,8 @@ class SampleServiceImpl(
             )
 
             val order = when (orderDirection) {
-                OrderDirection.DESC -> builder.desc(from.get<Long>("id"))
-                else -> builder.asc(from.get<Long>("id"))
+                OrderDirection.DESC -> builder.desc(from.get<Long>("createdDate"))
+                else -> builder.asc(from.get<Long>("createdDate"))
             }
             query?.orderBy(order)
             query?.distinct(true)
@@ -900,7 +899,7 @@ class SampleServiceImpl(
                     }
                 }
 
-                val fields = extractorFieldExecutor.parseFieldsFromText(text, sample)
+                extractorFieldExecutor.parseFieldsFromText(text, sample)
 
                 val filePath = sampleRepository.findByTemplateHashAndDeletedFalse(templateHash)
                     ?.filePath
@@ -1002,7 +1001,7 @@ class DocumentationServiceImpl(
                     documentationRepository.existsByName(dto.name)
                         .runIfTrue { throw DocumentNameAlreadyExistsException(dto.name) }
                 val sample = sampleRepository.findByIdAndDeletedFalse(dto.sampleId)
-                    ?: throw ObjectIdNotFoundException(dto.sampleId)
+                    ?: throw SampleDeletedException(dto.sampleId)
                 sampleRepository.existsByIdAndDeletedTrue(dto.sampleId)
                     .runIfTrue { throw SampleDeletedException(dto.sampleId) }
 
@@ -1154,8 +1153,8 @@ class DocumentationServiceImpl(
             )
 
             val order = when (orderDirection) {
-                OrderDirection.DESC -> builder.desc(from.get<Long>("id"))
-                else -> builder.asc(from.get<Long>("id"))
+                OrderDirection.DESC -> builder.desc(from.get<Long>("createdDate"))
+                else -> builder.asc(from.get<Long>("createdDate"))
             }
             query?.orderBy(order)
             query?.distinct(true)
@@ -1274,8 +1273,8 @@ class DownloadInfoServiceImpl(
             query?.distinct(true)
 
             val order = when (orderDirection) {
-                OrderDirection.DESC -> builder.desc(from.get<Long>("id"))
-                else -> builder.asc(from.get<Long>("id"))
+                OrderDirection.DESC -> builder.desc(from.get<Long>("createdDate"))
+                else -> builder.asc(from.get<Long>("createdDate"))
             }
             query?.orderBy(order)
 
