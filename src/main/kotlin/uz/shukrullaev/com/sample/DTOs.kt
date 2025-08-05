@@ -153,7 +153,7 @@ fun Sample.toDTO(currentUser: User) = SampleResponseDto(
     name = this.name,
     sampleFields = this.fields.map { it.toDTO() },
     permissions = this.permissions
-        .filter { it.user.id == currentUser.id && !it.deleted }
+        .filter { it.user.role != Role.DIRECTOR && it.user.id == currentUser.id && !it.deleted }
         .map { it.permission }
         .toSet()
 )
@@ -233,7 +233,7 @@ fun Documentation.toDTO(currentUser: User): DocumentationResponseDto {
         sample = this.sample.toDTO(),
         values = this.values.map { it.toDTO() },
         permissions = this.permissions
-            .filter { it.user.id == currentUser.id && !it.deleted }
+            .filter { it.user.role != Role.DIRECTOR && it.user.id == currentUser.id && !it.deleted }
             .map { it.permission }
     )
 }
