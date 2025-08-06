@@ -7,7 +7,7 @@ spring:
     driver-class-name: org.postgresql.Driver
     url: jdbc:postgresql://dpg-d26ccdnfte5s73emt2lg-a.oregon-postgres.render.com:5432/sample_db_5xtj
     username: sample_db_5xtj_user
-    password: 3PaN0C2gH3BGKj7nndimvbxsM5BkxeQn
+#    password: 3PaN0C2gH3BGKj7nndimvbxsM5BkxeQn
 
   jpa:
     show-sql: true

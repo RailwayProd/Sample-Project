@@ -11,7 +11,6 @@ import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Primary
 import org.springframework.context.support.ResourceBundleMessageSource
 import org.springframework.core.convert.converter.Converter
-import org.springframework.scheduling.annotation.EnableAsync
 import org.springframework.security.authentication.AbstractAuthenticationToken
 import org.springframework.security.authentication.BadCredentialsException
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
@@ -69,7 +68,8 @@ class WebMvcConfigure : WebMvcConfigurer {
                 "http://192.168.0.1:3005",
                 "https://9341394f7f65.ngrok-free.app",
                 "http://localhost:3004",
-                "http://172.20.16.1:3004"
+                "http://172.20.16.1:3004",
+                "https://contracts-demo.netlify.app"
             )
             .allowedMethods("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")
             .allowedHeaders("*")

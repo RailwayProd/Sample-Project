@@ -211,7 +211,7 @@ class AuthServiceImpl(
     override fun login(username: String, password: String): TokenDTO? {
         return listOfNotNull(
             checkByPasswordAndPassword(username, password),
-        ).firstOrNull() ?: throw UserNameFoundException(username)
+        ).firstOrNull() ?: throw UsernameOrPasswordIncorrect(username)
     }
 
     override fun registration(userRequestDto: UserRequestDto): UserResponseDto =
@@ -233,7 +233,7 @@ class AuthServiceImpl(
     private fun checkByPasswordAndPassword(username: String, password: String): TokenDTO {
         return username.let {
             userRepository.findByUsernameAndDeletedFalse(it)
-                .orElseThrow { UsernameNotFoundException(it) }
+                .orElseThrow { UsernameOrPasswordIncorrect(it) }
                 .let { user ->
                     (user.status != Status.ACTIVE).runIfTrue { throw UsernameOrPasswordIncorrect(username, password) }
                     (passwordEncoder.matches(password, user.password)).runIfFalse {
