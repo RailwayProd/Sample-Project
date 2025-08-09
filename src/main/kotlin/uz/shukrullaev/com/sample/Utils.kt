@@ -37,9 +37,7 @@ import java.util.zip.ZipOutputStream
  * @since 12/07/2025 11:57 am
  */
 
-val replaceRegex = Regex("""\{\{([A-Za-z0-9_]+)}}|(?<!\w)[A-Z0-9_]{2,}(?!\w)""")
-
-val rightRegex = Regex("""[A-Za-z0-9_-]+(?=\s*[:\-])""")
+val replaceRegex = Regex("""\{\{([^}]*)}}""")
 
 interface SupportType {
     fun supports(extension: String): Boolean
@@ -208,14 +206,6 @@ class DocxReplaceFactoryImpl : ReplaceFileFactory {
                     replaced = value?.let { replaced.replace(match.value, value) } ?: ""
                 }
             }
-
-            val nextRunText = runs.getOrNull(i + 1)?.getText(0)?.trim()
-            val (type, value) = replacements[text] ?: (null to null)
-            if (type == FieldReplaceType.RIGHT && nextRunText == ":") {
-                replaced = value?.let { "$text: $value" } ?: "$text: "
-                runs[i + 1].setText("", 0)
-            }
-
             run.setText(replaced, 0)
         }
     }
@@ -305,13 +295,6 @@ class ExtractorFieldExecutor {
             .filterNot { it.count { c -> c == '-' } > 10 }
             .toSet()
 
-        val rightFields = rightRegex.findAll(text)
-            .map { it.value.trim() }
-            .filter { it.length < 64 }
-            .filterNot { it.all { c -> c == '-' } }
-            .filterNot { it.count { c -> c == '-' } > 10 }
-            .toSet()
-
         val allFields = mutableListOf<SampleField>()
 
         replaceFields.forEach { field ->
@@ -319,17 +302,6 @@ class ExtractorFieldExecutor {
                 keyName = field,
                 fieldType = FieldType.STRING,
                 fieldReplaceType = FieldReplaceType.REPLACE,
-                isRequired = false,
-                sample = sample
-            )
-        }
-
-        rightFields.forEach { field ->
-            if (replaceFields.contains(field)) return@forEach
-            allFields += SampleField(
-                keyName = field,
-                fieldType = FieldType.STRING,
-                fieldReplaceType = FieldReplaceType.RIGHT,
                 isRequired = false,
                 sample = sample
             )
@@ -580,7 +552,7 @@ class UserContextService(
     private val userRepository: UserRepository
 ) {
 
-    fun getCurrentOrganizationId(requestedOrgId: Long?): Long {
+    fun getCurrentOrganizationId(requestedOrgId: Long?): Long? {
         val username = getUserName()
         val user = userRepository.findByUsernameAndDeletedFalse(username)
             .orElseThrow { UsernameNotFoundException(username) }
@@ -589,8 +561,27 @@ class UserContextService(
 
         return when {
             role == Role.ADMIN && requestedOrgId == null ->
-                throw OrganizationIdIsNullException()
+                null
 
+            role == Role.ADMIN && requestedOrgId != null ->
+                requestedOrgId
+
+            role == Role.DIRECTOR || role == Role.OPERATOR ->
+                user.organization?.id ?: throw OrganizationIdIsNullException()
+
+            else -> throw AccessDeniedException()
+        }
+    }
+
+    fun getCurrentOrganizationIdForChange(requestedOrgId: Long?): Long? {
+        val username = getUserName()
+        val user = userRepository.findByUsernameAndDeletedFalse(username)
+            .orElseThrow { UsernameNotFoundException(username) }
+
+        val role = getUserRoles().firstOrNull() ?: throw AccessDeniedException()
+
+        return when {
+            role == Role.ADMIN && requestedOrgId == null -> throw AccessDeniedException()
             role == Role.ADMIN && requestedOrgId != null ->
                 requestedOrgId
 

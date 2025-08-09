@@ -50,8 +50,7 @@ enum class FieldType {
 }
 
 enum class FieldReplaceType {
-    REPLACE,
-    RIGHT
+    REPLACE
 }
 
 enum class ExceptionsCode(val code: Int) {
@@ -74,7 +73,8 @@ enum class ExceptionsCode(val code: Int) {
     PATH_NULL(116),
     FILE_NOT_FOUND(117),
     SAMPLE_DELETED(118),
-    REQUIRED_VALUE(118),
+    REQUIRED_VALUE(119),
+    ALLOW_CONTRACT_CREATION(120)
 //    FILE_FORMAT_NOT_FOUND_EXCEPTION(105),
 
 }

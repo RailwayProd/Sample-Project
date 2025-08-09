@@ -67,6 +67,9 @@ class GlobalExceptionHandler(
             is AccessDeniedException -> ResponseEntity.badRequest()
                 .body(ex.getErrorMessage(errorMessageSource))
 
+            is AllowContractCreationException -> ResponseEntity.badRequest()
+                .body(ex.getErrorMessage(errorMessageSource))
+
             is OrganizationIdIsNullException -> ResponseEntity.badRequest()
                 .body(ex.getErrorMessage(errorMessageSource))
 

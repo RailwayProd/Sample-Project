@@ -159,7 +159,12 @@ interface SampleService {
     fun deleteField(fieldId: Long)
     fun getFieldsBySampleId(sampleId: Long): List<SampleFieldResponseDto>
     fun uploadSampleFile(file: MultipartFile, name: String): SampleResponseDto
-    fun updateSampleFile(file: MultipartFile?, sampleId: Long, name: String): SampleResponseDto
+    fun updateSampleFile(
+        file: MultipartFile?,
+        sampleId: Long,
+        name: String?,
+        allowContractCreation: Boolean?
+    ): SampleResponseDto
 
     fun getSampleFile(id: Long): ResponseEntity<ByteArray>
 }
@@ -197,6 +202,8 @@ interface DownloadInfoService {
     fun downloadFilesByDownloadInfoId(downloadInfoId: Long): ByteArray
 
     fun createDownloadInfo(request: CreateDownloadInfoRequest): DownloadInfoResponseDto
+
+    fun deleteById(infoId: Long)
 
 }
 
@@ -320,7 +327,7 @@ class UserServiceImpl(
     @Transactional
     override fun update(id: Long, dto: UserRequestForUpdateDto): UserResponseDto {
         val currentUsername = getUserName()
-        var role = getUserRoles().firstOrNull() ?: throw AccessDeniedException()
+        val role = getUserRoles().firstOrNull() ?: throw AccessDeniedException()
 
         val organization = resolveOrganization(dto.organizationId, role, currentUsername)
         val currentUser =
@@ -471,10 +478,9 @@ class UserServiceImpl(
                 predicates += builder.like(builder.lower(concat), "%${it.trim().lowercase()}%")
             }
 
-
             val order = when (orderDirection) {
-                OrderDirection.DESC -> builder.desc(from.get<Long>("createdDate"))
-                else -> builder.asc(from.get<Long>("createdDate"))
+                OrderDirection.ASC -> builder.asc(from.get<Long>("createdDate"))
+                else -> builder.desc(from.get<Long>("createdDate"))
             }
             query?.orderBy(order)
 
@@ -513,8 +519,8 @@ class UserServiceImpl(
             }
 
             val order = when (orderDirection) {
-                OrderDirection.DESC -> builder.desc(from.get<Long>("createdDate"))
-                else -> builder.asc(from.get<Long>("createdDate"))
+                OrderDirection.ASC -> builder.asc(from.get<Long>("createdDate"))
+                else -> builder.desc(from.get<Long>("createdDate"))
             }
             query?.orderBy(order)
 
@@ -595,8 +601,8 @@ class OrganizationServiceImpl(
             query?.distinct(true)
 
             val order = when (orderDirection) {
-                OrderDirection.DESC -> builder.desc(from.get<Long>("createdDate"))
-                else -> builder.asc(from.get<Long>("createdDate"))
+                OrderDirection.ASC -> builder.asc(from.get<Long>("createdDate"))
+                else -> builder.desc(from.get<Long>("createdDate"))
             }
             query?.orderBy(order)
 
@@ -761,7 +767,12 @@ class SampleServiceImpl(
         return sampleFieldRepository.findAllBySampleIdAndDeletedFalse(sampleId).map { it.toDTO() }
     }
 
-    override fun updateSampleFile(file: MultipartFile?, sampleId: Long, name: String): SampleResponseDto =
+    override fun updateSampleFile(
+        file: MultipartFile?,
+        sampleId: Long,
+        name: String?,
+        allowContractCreation: Boolean?
+    ): SampleResponseDto =
         sampleRepository.findByIdAndDeletedFalse(sampleId)
             ?.also { sample ->
                 val user = userRepository.findByUsernameAndDeletedFalse(getUserName())
@@ -779,14 +790,14 @@ class SampleServiceImpl(
             }
             ?.run {
                 this.takeIf {
-                    it.name != name
+                    name != null && it.name != name
                 }?.let {
-                    sampleRepository.findByNameAndDeletedFalse(name)
+                    sampleRepository.findByNameAndDeletedFalse(name!!)
                         ?.let { throw SampleNameAlreadyExistsException(name) }
                     it.name = name
                 }
-
-                file?.let { return@run updateSampleFile(it, name, this) }
+                allowContractCreation?.let { this.allowContractCreation = allowContractCreation }
+                file?.let { return@run updateSampleFile(it, it.name, this) }
 
                 sampleRepository.save(this).toDTO()
             }
@@ -816,7 +827,8 @@ class SampleServiceImpl(
                     templateHash = "",
                     filePath = "",
                     owner = user,
-                    organization = user.organization!!
+                    organization = user.organization!!,
+                    allowContractCreation = true
                 ).let(sampleRepository::save)
 
                 val fields = extractorFieldExecutor.parseFieldsFromText(text, sample)
@@ -878,8 +890,8 @@ class SampleServiceImpl(
             )
 
             val order = when (orderDirection) {
-                OrderDirection.DESC -> builder.desc(from.get<Long>("createdDate"))
-                else -> builder.asc(from.get<Long>("createdDate"))
+                OrderDirection.ASC -> builder.asc(from.get<Long>("createdDate"))
+                else -> builder.desc(from.get<Long>("createdDate"))
             }
             query?.orderBy(order)
             query?.distinct(true)
@@ -929,6 +941,7 @@ class SampleServiceImpl(
 @Service
 class DocumentationServiceImpl(
     private val documentationRepository: DocumentationRepository,
+    private val organizationRepository: OrganizationRepository,
     private val documentationValueRepository: DocumentationValueRepository,
     private val sampleRepository: SampleRepository,
     private val sampleFieldRepository: SampleFieldRepository,
@@ -975,31 +988,52 @@ class DocumentationServiceImpl(
     }
 
     @Transactional
-    override fun create(dto: DocumentationRequestDto): DocumentationResponseDto {
-        val userName = getUserName()
-        val user: User =
-            userRepository.findByUsernameAndDeletedFalse(userName)
-                .orElseThrow { throw uz.shukrullaev.com.sample.UsernameNotFoundException(userName) }
-        sampleRepository.existsByIdAndDeletedTrue(dto.sampleId).runIfTrue { throw SampleDeletedException(dto.sampleId) }
-        return sampleRepository.findByIdAndDeletedFalse(dto.sampleId)
-            ?.also {
+    override fun create(dto: DocumentationRequestDto): DocumentationResponseDto =
+        getUserName()
+            .let { username ->
+                userRepository.findByUsernameAndDeletedFalse(username)
+                    .orElseThrow { uz.shukrullaev.com.sample.UsernameNotFoundException(username) }
+            }
+            .let { user ->
+
+                sampleRepository.existsByIdAndDeletedTrue(dto.sampleId)
+                    .runIfTrue { throw SampleDeletedException(dto.sampleId) }
+
+
+                val sample = sampleRepository.findByIdAndDeletedFalse(dto.sampleId)
+                    ?: throw ObjectIdNotFoundException(dto.sampleId)
+                sample.allowContractCreation!!.runIfFalse { throw AllowContractCreationException() }
+
                 documentationRepository.existsByNameAndDeletedFalse(dto.name)
                     .runIfTrue { throw DocumentNameAlreadyExistsException(dto.name) }
-            }?.let { sample ->
+
+
                 checkValues(sample, dto.values)
-                if (documentationRepository.existsByName(dto.name)) throw DocumentNameAlreadyExistsException()
-                dto.toEntity(sample, user, user.organization!!).let(documentationRepository::save).let { doc ->
-                    sampleFieldRepository.findAllBySampleIdAndDeletedFalse(sample.id!!)
-                        .mapNotNull { field ->
-                            dto.values.find { it.fieldId == field.id }
-                                ?.toEntity(field, doc)
-                        }.also { values ->
-                            documentationValueRepository.saveAll(values)
-                            doc.values = values.toMutableSet()
-                        }.let { doc.toDTO() }
-                }
-            } ?: throw ObjectIdNotFoundException(dto.sampleId)
-    }
+
+
+                val orgId = userContextService.getCurrentOrganizationIdForChange(dto.organizationId)
+                val organization = orgId?.let {
+                    organizationRepository.findByIdAndDeletedFalse(it)
+                        ?: throw ObjectIdNotFoundException(dto.organizationId)
+                } ?: user.organization ?: throw OrganizationIdIsNullException()
+
+
+                dto.toEntity(sample, user, organization)
+                    .apply { this.organization = organization }
+                    .let(documentationRepository::save)
+                    .also { doc ->
+                        sampleFieldRepository.findAllBySampleIdAndDeletedFalse(sample.id!!)
+                            .mapNotNull { field ->
+                                dto.values.find { it.fieldId == field.id }
+                                    ?.toEntity(field, doc)
+                            }
+                            .also { values ->
+                                documentationValueRepository.saveAll(values)
+                                doc.values = values.toMutableSet()
+                            }
+                    }
+                    .toDTO()
+            }
 
     @Transactional
     override fun update(id: Long, dto: DocumentationRequestDto): DocumentationResponseDto =
@@ -1012,11 +1046,21 @@ class DocumentationServiceImpl(
                     ?: throw SampleDeletedException(dto.sampleId)
                 sampleRepository.existsByIdAndDeletedTrue(dto.sampleId)
                     .runIfTrue { throw SampleDeletedException(dto.sampleId) }
-
+                val user = getUserName()
+                    .let { username ->
+                        userRepository.findByUsernameAndDeletedFalse(username)
+                            .orElseThrow { uz.shukrullaev.com.sample.UsernameNotFoundException(username) }
+                    }
                 checkValues(sample, dto.values)
 
                 val sampleFields = sampleFieldRepository.findAllBySampleIdAndDeletedFalse(sample.id!!)
                 if (sampleFields.isEmpty()) throw ObjectIdNotFoundException(sample.id)
+                val orgId = userContextService.getCurrentOrganizationIdForChange(dto.organizationId)
+                val organization = orgId?.let {
+                    organizationRepository.findByIdAndDeletedFalse(it)
+                        ?: throw ObjectIdNotFoundException(dto.organizationId)
+                } ?: user.organization ?: throw OrganizationIdIsNullException()
+
 
                 val existingValues =
                     documentationValueRepository.findAllByDocumentationIdAndDeletedFalse(documentation.id!!)
@@ -1037,7 +1081,7 @@ class DocumentationServiceImpl(
 
                 documentation.name = dto.name
                 documentation.sample = sample
-
+                documentation.organization = organization
                 documentationRepository.save(documentation)
                 documentationValueRepository.saveAll(documentation.values)
 
@@ -1161,8 +1205,8 @@ class DocumentationServiceImpl(
             )
 
             val order = when (orderDirection) {
-                OrderDirection.DESC -> builder.desc(from.get<Long>("createdDate"))
-                else -> builder.asc(from.get<Long>("createdDate"))
+                OrderDirection.ASC -> builder.asc(from.get<Long>("createdDate"))
+                else -> builder.desc(from.get<Long>("createdDate"))
             }
             query?.orderBy(order)
             query?.distinct(true)
@@ -1262,6 +1306,12 @@ class DownloadInfoServiceImpl(
         return savedInfo.toDTO()
     }
 
+    override fun deleteById(infoId: Long) {
+        downloadInfoRepository.findByIdAndDeletedFalse(infoId)
+            ?.let { downloadInfoRepository.deleteById(infoId) }
+            ?: throw ObjectIdNotFoundException(infoId)
+    }
+
 
     private fun createSpecification(
         ownerId: Long,
@@ -1281,8 +1331,8 @@ class DownloadInfoServiceImpl(
             query?.distinct(true)
 
             val order = when (orderDirection) {
-                OrderDirection.DESC -> builder.desc(from.get<Long>("createdDate"))
-                else -> builder.asc(from.get<Long>("createdDate"))
+                OrderDirection.ASC -> builder.asc(from.get<Long>("createdDate"))
+                else -> builder.desc(from.get<Long>("createdDate"))
             }
             query?.orderBy(order)
 

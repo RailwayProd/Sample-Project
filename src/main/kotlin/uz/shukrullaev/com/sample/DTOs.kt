@@ -131,7 +131,9 @@ data class SampleResponseDto(
     val id: Long,
     val name: String,
     val sampleFields: List<SampleFieldResponseDto>? = null,
-    val permissions: Set<Permissions> = emptySet()
+    val permissions: Set<Permissions> = emptySet(),
+    val ownerId: Long? = null,
+    val allowContractCreation: Boolean? = null
 )
 
 fun SampleRequestDto.toEntity(owner: User, organization: Organization) = Sample(
@@ -145,7 +147,8 @@ fun SampleRequestDto.toEntity(owner: User, organization: Organization) = Sample(
 fun Sample.toDTO() = SampleResponseDto(
     id = this.id!!,
     name = this.name,
-    sampleFields = this.fields.map { it.toDTO() }
+    sampleFields = this.fields.map { it.toDTO() },
+    allowContractCreation = this.allowContractCreation
 )
 
 fun Sample.toDTO(currentUser: User) = SampleResponseDto(
@@ -155,8 +158,11 @@ fun Sample.toDTO(currentUser: User) = SampleResponseDto(
     permissions = this.permissions
         .filter { it.user.role != Role.DIRECTOR && it.user.id == currentUser.id && !it.deleted }
         .map { it.permission }
-        .toSet()
+        .toSet(),
+    ownerId = (currentUser.id).takeIf { owner.id != it },
+    allowContractCreation = this.allowContractCreation
 )
+
 data class SampleFieldRequestDto(
     val id: Long? = null,
     @field:NotBlank val keyName: String,
@@ -195,15 +201,17 @@ data class DocumentationRequestDto(
     @field:NotBlank val name: String,
     val sampleId: Long,
     val values: List<DocumentationValueRequestDto> = emptyList(),
+    val organizationId: Long? = null
 
-    )
+)
 
 data class DocumentationResponseDto(
     val id: Long,
     val name: String,
     val sample: SampleResponseDto,
     val values: List<DocumentationValueResponseDto> = emptyList(),
-    val permissions: List<Permissions> = emptyList()
+    val permissions: List<Permissions> = emptyList(),
+    val ownerId: Long? = null,
 )
 
 
@@ -234,7 +242,9 @@ fun Documentation.toDTO(currentUser: User): DocumentationResponseDto {
         values = this.values.map { it.toDTO() },
         permissions = this.permissions
             .filter { it.user.role != Role.DIRECTOR && it.user.id == currentUser.id && !it.deleted }
-            .map { it.permission }
+            .map { it.permission },
+        ownerId = (currentUser.id).takeIf { owner.id != it }
+
     )
 }
 

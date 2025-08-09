@@ -86,6 +86,10 @@ class AccessDeniedException : ExceptionUtil() {
     override fun exceptionType() = ExceptionsCode.ACCESS_DENIED
 }
 
+class AllowContractCreationException  : ExceptionUtil() {
+    override fun exceptionType() = ExceptionsCode.ALLOW_CONTRACT_CREATION
+}
+
 class OrganizationIdIsNullException : ExceptionUtil() {
     override fun exceptionType() = ExceptionsCode.ORGANIZATION_ID_IS_NULL
 }

@@ -76,7 +76,8 @@ class Sample(
     @ManyToOne var owner: User,
     @ManyToOne var organization: Organization,
     @OneToMany(mappedBy = "sample")
-    val permissions: MutableList<SamplePermission> = mutableListOf()
+    val permissions: MutableList<SamplePermission> = mutableListOf(),
+    var allowContractCreation: Boolean? = true
 
 
 ) : BaseEntity()
@@ -101,7 +102,7 @@ class Documentation(
     @OneToMany(mappedBy = "documentation")
     var values: MutableSet<DocumentationValue> = mutableSetOf(),
     @ManyToOne val owner: User,
-    @ManyToOne val organization: Organization,
+    @ManyToOne var organization: Organization,
     @ManyToMany(mappedBy = "documentations") var downloadInfos: MutableSet<DownloadInfo> = mutableSetOf(),
     @OneToMany(mappedBy = "documentation", fetch = FetchType.LAZY)
     val permissions: List<DocumentationPermission> = listOf()

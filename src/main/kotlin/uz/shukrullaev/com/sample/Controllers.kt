@@ -217,9 +217,10 @@ class SampleController(
     fun updateSampleFile(
         @PathVariable id: Long,
         @RequestParam("file") file: MultipartFile?,
-        @RequestParam("name") name: String,
+        @RequestParam("name") name: String?,
+        @RequestParam("allowContractCreation") allowContractCreation : Boolean?
     ): SampleResponseDto {
-        return sampleService.updateSampleFile(file, id, name)
+        return sampleService.updateSampleFile(file, id, name, allowContractCreation )
     }
 
     @GetMapping("show-sample/{id}")
@@ -379,6 +380,11 @@ class DownloadInfoController(
     @GetMapping("/stream", produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
     fun streamAll(): SseEmitter {
         return sseEmitterService.register()
+    }
+
+    @DeleteMapping("{infoId}")
+    fun deleteDownloadInfo(@PathVariable infoId: Long){
+        downloadInfoService.deleteById(infoId)
     }
 }
 
