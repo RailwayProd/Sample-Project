@@ -107,7 +107,6 @@ interface AuthService {
 interface UserService {
     fun create(dto: UserRequestDto): UserResponseDto
     fun update(id: Long, dto: UserRequestForUpdateDto): UserResponseDto
-    fun get(id: Long): UserResponseDto
     fun delete(id: Long)
     fun getAll(
         search: String?,
@@ -136,7 +135,6 @@ interface UserService {
 interface OrganizationService {
     fun create(dto: OrganizationRequestDto): OrganizationResponseDto
     fun update(id: Long, dto: OrganizationRequestDto): OrganizationResponseDto
-    fun get(id: Long): OrganizationResponseDto
     fun delete(id: Long)
     fun getAll(
         organizationId: Long?,
@@ -146,18 +144,18 @@ interface OrganizationService {
 }
 
 interface SampleService {
-    fun create(dto: SampleRequestDto): SampleResponseDto
-    fun update(id: Long, dto: SampleRequestDto): SampleResponseDto
+
     fun get(id: Long): SampleResponseDto
     fun delete(id: Long)
-    fun getAll(search: String?, orderDirection: OrderDirection?, pageable: Pageable): Page<SampleResponseDto>
-
-    fun addField(sampleId: Long, dto: SampleFieldRequestDto): SampleFieldResponseDto
-    fun updateField(fieldId: Long, dto: SampleFieldRequestDto): SampleFieldResponseDto
+    fun getAll(
+        search: String?,
+        allowContractCreation: Boolean?,
+        orderDirection: OrderDirection?,
+        pageable: Pageable
+    ): Page<SampleResponseDto>
 
     fun updateFields(sampleId: Long, sampleFields: List<SampleFieldRequestDto>): SampleResponseDto
-    fun deleteField(fieldId: Long)
-    fun getFieldsBySampleId(sampleId: Long): List<SampleFieldResponseDto>
+
     fun uploadSampleFile(file: MultipartFile, name: String): SampleResponseDto
     fun updateSampleFile(
         file: MultipartFile?,
@@ -181,13 +179,6 @@ interface DocumentationService {
         orderDirection: OrderDirection?,
         pageable: Pageable
     ): Page<DocumentationResponseDto>
-
-    fun getBySampleId(sampleId: Long, pageable: Pageable): Page<DocumentationResponseDto>
-    fun addValue(documentationId: Long, fieldId: Long, value: String): DocumentationValueResponseDto
-    fun updateValue(valueId: Long, newValue: String): DocumentationValueResponseDto
-    fun getValuesByDocumentationId(documentationId: Long): List<DocumentationValueResponseDto>
-    fun deleteValue(valueId: Long)
-    fun getAuditInfo(documentationId: Long): AuditInfoDto
 
 }
 
@@ -360,14 +351,6 @@ class UserServiceImpl(
             ?.let(userRepository::save)
             ?.toDTO()
             ?: throw ObjectIdNotFoundException(id)
-    }
-
-
-    @Transactional(readOnly = true)
-    override fun get(id: Long): UserResponseDto {
-        val user = userRepository.findByIdAndDeletedFalse(id)
-            ?: throw ObjectIdNotFoundException(id)
-        return user.toDTO()
     }
 
     @Transactional
@@ -553,14 +536,6 @@ class OrganizationServiceImpl(
             ?.toDTO()
             ?: throw ObjectIdNotFoundException(id)
 
-    @Transactional(readOnly = true)
-    override fun get(id: Long): OrganizationResponseDto {
-        val organization = organizationRepository.findByIdAndDeletedFalse(id)
-            ?: throw ObjectIdNotFoundException(id)
-
-        return organization.toDTO()
-    }
-
     @Transactional
     override fun delete(id: Long) {
         organizationRepository.trash(id)
@@ -634,26 +609,6 @@ class SampleServiceImpl(
     private val userContextService: UserContextService,
 ) : SampleService {
 
-    @Transactional
-    override fun create(dto: SampleRequestDto): SampleResponseDto {
-        val userName = getUserName()
-        val user: User = getOwner(userName)
-
-        val sample = dto.toEntity(user, user.organization!!)
-        return sampleRepository.save(sample).toDTO()
-    }
-
-
-    @Transactional
-    override fun update(id: Long, dto: SampleRequestDto): SampleResponseDto {
-        val sample = sampleRepository.findByIdAndDeletedFalse(id)
-            ?: throw ObjectIdNotFoundException(id)
-
-        sample.name = dto.name
-        return sampleRepository.save(sample).toDTO()
-    }
-
-
     @Transactional(readOnly = true)
     override fun get(id: Long): SampleResponseDto {
         val sample = sampleRepository.findByIdAndDeletedFalse(id)
@@ -661,6 +616,7 @@ class SampleServiceImpl(
 
         return sample.toDTO()
     }
+
 
     @Transactional
     override fun delete(id: Long) {
@@ -671,6 +627,7 @@ class SampleServiceImpl(
     @Transactional(readOnly = true)
     override fun getAll(
         search: String?,
+        allowContractCreation: Boolean?,
         orderDirection: OrderDirection?,
         pageable: Pageable
     ): Page<SampleResponseDto> {
@@ -683,39 +640,13 @@ class SampleServiceImpl(
             user = user,
             organizationId = orgId,
             search = search,
+            allowContractCreation = allowContractCreation,
             orderDirection = orderDirection
         )
 
         return sampleRepository.findAll(spec, pageable).map { it.toDTO(user) }
     }
 
-
-    @Transactional
-    override fun addField(sampleId: Long, dto: SampleFieldRequestDto): SampleFieldResponseDto {
-        val sample = sampleRepository.findByIdAndDeletedFalse(sampleId)
-            ?: throw ObjectIdNotFoundException(sampleId)
-
-        val field = dto.toEntity(sample)
-        return sampleFieldRepository.save(field).toDTO()
-    }
-
-    @Transactional
-    override fun updateField(fieldId: Long, dto: SampleFieldRequestDto): SampleFieldResponseDto {
-        val field = sampleFieldRepository.findByIdAndDeletedFalse(fieldId)
-            ?: throw ObjectIdNotFoundException(fieldId)
-
-        val sample = sampleRepository.findByIdAndDeletedFalse(dto.sampleId)
-            ?: throw ObjectIdNotFoundException(dto.sampleId)
-
-        field.apply {
-            keyName = dto.keyName
-            fieldType = dto.fieldType
-            isRequired = dto.isRequired
-            this.sample = sample
-        }
-
-        return sampleFieldRepository.save(field).toDTO()
-    }
 
     @Transactional
     override fun updateFields(sampleId: Long, sampleFields: List<SampleFieldRequestDto>): SampleResponseDto {
@@ -752,21 +683,7 @@ class SampleServiceImpl(
         if (isRequired != new.isRequired) isRequired = new.isRequired
     }
 
-
     @Transactional
-    override fun deleteField(fieldId: Long) {
-        sampleFieldRepository.trash(fieldId)
-            ?: throw AlreadyDeletedException(fieldId)
-    }
-
-    @Transactional(readOnly = true)
-    override fun getFieldsBySampleId(sampleId: Long): List<SampleFieldResponseDto> {
-        sampleRepository.findByIdAndDeletedFalse(sampleId)
-            ?: throw ObjectIdNotFoundException(sampleId)
-
-        return sampleFieldRepository.findAllBySampleIdAndDeletedFalse(sampleId).map { it.toDTO() }
-    }
-
     override fun updateSampleFile(
         file: MultipartFile?,
         sampleId: Long,
@@ -871,6 +788,7 @@ class SampleServiceImpl(
         role: Role,
         organizationId: Long?,
         search: String?,
+        allowContractCreation: Boolean?,
         orderDirection: OrderDirection?
     ): Specification<Sample> {
         return Specification { from, query, builder ->
@@ -888,6 +806,7 @@ class SampleServiceImpl(
                 "sample",
                 search
             )
+            allowContractCreation?.let { predicates += builder.equal(from.get<Boolean>("allowContractCreation"), it) }
 
             val order = when (orderDirection) {
                 OrderDirection.ASC -> builder.asc(from.get<Long>("createdDate"))
@@ -1125,58 +1044,6 @@ class DocumentationServiceImpl(
         return documentationRepository.findAll(spec, pageable).map { it.toDTO(user) }
     }
 
-
-    @Transactional(readOnly = true)
-    override fun getBySampleId(sampleId: Long, pageable: Pageable): Page<DocumentationResponseDto> {
-        return documentationRepository.findAllBySampleIdAndDeletedFalse(sampleId, pageable)
-            .map { it.toDTO() }
-    }
-
-    @Transactional
-    override fun addValue(documentationId: Long, fieldId: Long, value: String): DocumentationValueResponseDto {
-        val documentation = documentationRepository.findByIdAndDeletedFalse(documentationId)
-            ?: throw ObjectIdNotFoundException(documentationId)
-
-        val field = sampleFieldRepository.findByIdAndDeletedFalse(fieldId)
-            ?: throw ObjectIdNotFoundException(fieldId)
-
-        val entity = DocumentationValue(value = value, documentation = documentation, field = field)
-        return documentationValueRepository.save(entity).toDTO()
-    }
-
-    @Transactional
-    override fun updateValue(valueId: Long, newValue: String): DocumentationValueResponseDto {
-        val value = documentationValueRepository.findByIdAndDeletedFalse(valueId)
-            ?: throw ObjectIdNotFoundException(valueId)
-
-        value.value = newValue
-        return documentationValueRepository.save(value).toDTO()
-    }
-
-    @Transactional(readOnly = true)
-    override fun getValuesByDocumentationId(documentationId: Long): List<DocumentationValueResponseDto> {
-        return documentationValueRepository.findAllByDocumentationIdAndDeletedFalse(documentationId)
-            .map { it.toDTO() }
-    }
-
-    @Transactional
-    override fun deleteValue(valueId: Long) {
-        documentationValueRepository.trash(valueId) ?: throw AlreadyDeletedException(valueId)
-    }
-
-    @Transactional(readOnly = true)
-    override fun getAuditInfo(documentationId: Long): AuditInfoDto {
-        val doc = documentationRepository.findByIdAndDeletedFalse(documentationId)
-            ?: throw ObjectIdNotFoundException(documentationId)
-
-        return AuditInfoDto(
-            createdBy = doc.createdBy,
-            createdDate = doc.createdDate,
-            updatedBy = doc.updatedBy,
-            updatedDate = doc.modifiedDate,
-        )
-    }
-
     private fun getOwner(userName: String): User =
         userRepository.findByUsernameAndDeletedFalse(userName)
             .getOrNull() ?: throw UserNameFoundException(userName)
@@ -1242,6 +1109,7 @@ class DownloadInfoServiceImpl(
     private val downloadWorker: DownloadWorker
 ) : DownloadInfoService {
 
+    @Transactional(readOnly = true)
     override fun getAll(
         status: FileDownloadStatus?,
         orderDirection: OrderDirection?,
@@ -1249,9 +1117,9 @@ class DownloadInfoServiceImpl(
     ): Page<DownloadInfoResponseDto> {
         val user = getOwner(getUserName())
         val spec = createSpecification(user.id!!, status, orderDirection)
-        return downloadInfoRepository.findAll(spec, pageable).map { it.toDTO() }
+        return downloadInfoRepository.findAll(spec, pageable)
+            .map { it.toDTO() }
     }
-
     override fun getDocumentsByDownloadInfoId(downloadInfoId: Long): List<DocumentationResponseDto> {
         val info = downloadInfoRepository.findByIdAndDeletedFalse(downloadInfoId)
             ?: throw ObjectIdNotFoundException(downloadInfoId)
@@ -1300,7 +1168,7 @@ class DownloadInfoServiceImpl(
 
 
         val foundedDocuments = documentationRepository.findAllByIdInAndDeletedFalse(request.documentationIds)
-        downloadWorker.createZipAsync(savedInfo.id!!, foundedDocuments)
+        downloadWorker.createZipAsyncParallel(savedInfo.id!!, foundedDocuments)
 
 
         return savedInfo.toDTO()

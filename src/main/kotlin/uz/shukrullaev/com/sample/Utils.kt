@@ -17,7 +17,6 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.multipart.MultipartFile
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import java.io.*
 import java.nio.file.Files
 import java.nio.file.Paths
@@ -27,7 +26,8 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.*
 import java.util.concurrent.CompletableFuture
-import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.Executors
+import java.util.zip.Deflater
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -188,27 +188,48 @@ class DocxReplaceFactoryImpl : ReplaceFileFactory {
         return outputStream.toByteArray()
     }
 
-
     private fun replaceRuns(
         runs: List<XWPFRun>,
         replacements: Map<String, Pair<FieldReplaceType, String?>>,
     ) {
-        for (i in runs.indices) {
-            val run = runs[i]
-            val text = run.getText(0) ?: continue
+        val fullText = runs.joinToString("") { it.getText(0) ?: "" }
 
-            var replaced = text
-
-            replaceRegex.findAll(text).forEach { match ->
-                val rawKey = match.groupValues[1].ifBlank { match.value }
-                val (type, value) = replacements[rawKey] ?: return@forEach
-                if (type == FieldReplaceType.REPLACE) {
-                    replaced = value?.let { replaced.replace(match.value, value) } ?: ""
-                }
+        var replacedText = fullText
+        replaceRegex.findAll(fullText).forEach { match ->
+            val rawKey = match.groupValues[1].trim()
+            val (type, value) = replacements[rawKey] ?: return@forEach
+            if (type == FieldReplaceType.REPLACE) {
+                replacedText = value?.let { replacedText.replace(match.value, it) } ?: ""
             }
-            run.setText(replaced, 0)
+        }
+
+        runs.forEach { it.setText("", 0) }
+        if (runs.isNotEmpty()) {
+            runs[0].setText(replacedText, 0)
         }
     }
+
+//    private fun replaceRunsV1(
+//        runs: List<XWPFRun>,
+//        replacements: Map<String, Pair<FieldReplaceType, String?>>,
+//    ) {
+//        for (i in runs.indices) {
+//            val run = runs[i]
+//            val text = run.getText(0) ?: continue
+//
+//            var replaced = text
+//
+//            replaceRegex.findAll(text).forEach { match ->
+//                val rawKey = match.groupValues[1].ifBlank { "{{$match.value}}" }
+//                val (type, value) = replacements[rawKey] ?: return@forEach
+//                if (type == FieldReplaceType.REPLACE) {
+//                    replaced = value?.let { replaced.replace(match.value, value) } ?: ""
+//                }
+//            }
+//            run.setText(replaced, 0)
+//        }
+//    }  bu {{}} ga ishlamidi sababi runlani ajratib chiqanidim FIELD_NAME bosa ishlidi
+//    {{FIELD_NAME}} ishlamidi alohida run bop kegani uchun {{ keyingi loop FIELD_NAME keyingi loop }}
 
 }
 
@@ -594,62 +615,24 @@ class UserContextService(
 }
 
 @Service
-class SseEmitterService {
-
-    private val emitters = CopyOnWriteArrayList<SseEmitter>()
-
-    fun register(): SseEmitter {
-        val emitter = SseEmitter(60_000L)
-        emitters += emitter
-
-        emitter.onCompletion { emitters.remove(emitter) }
-        emitter.onTimeout { emitters.remove(emitter) }
-        emitter.onError { emitters.remove(emitter) }
-
-        return emitter
-    }
-
-    fun emitToAll(dto: DownloadInfoResponseDto) {
-        val deadEmitters = mutableListOf<SseEmitter>()
-
-        emitters.forEach { emitter ->
-            try {
-                emitter.send(dto)
-                if (dto.status == FileDownloadStatus.DOWNLOADED || dto.status == FileDownloadStatus.ERROR) {
-                    emitter.complete()
-                    deadEmitters += emitter
-                }
-            } catch (ex: Exception) {
-                emitter.completeWithError(ex)
-                deadEmitters += emitter
-            }
-        }
-
-        emitters.removeAll(deadEmitters.toSet())
-    }
-}
-
-@Service
 class DownloadWorker(
     private val downloadInfoRepository: DownloadInfoRepository,
     private val fileUtils: FileUtils,
     private val factory: ReplaceFileFactory,
     private val formatConverters: List<FormatConverter>,
-    private val exporters: List<Exporter>,
-    private val sseEmitterService: SseEmitterService
+    private val exporters: List<Exporter>
 ) {
     private val log = LoggerFactory.getLogger(this::class.java)
 
     @Async
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    fun createZipAsync(downloadInfoId: Long, documents: List<Documentation>): CompletableFuture<Void> {
+    fun createZipAsyncParallel(downloadInfoId: Long, documents: List<Documentation>): CompletableFuture<Void> {
         val info = waitForDownloadInfo(downloadInfoId)
             ?: return CompletableFuture.completedFuture(null)
 
         try {
             info.status = FileDownloadStatus.DOWNLOADING
             downloadInfoRepository.save(info)
-            sseEmitterService.emitToAll(info.toDTO())
 
             val baseDir = Paths.get("uploads", "downloads")
             Files.createDirectories(baseDir)
@@ -657,47 +640,86 @@ class DownloadWorker(
             val zipFileName = "documents_${UUID.randomUUID()}.zip"
             val zipPath = baseDir.resolve(zipFileName)
 
-            FileOutputStream(zipPath.toFile()).use { fileOut ->
-                ZipOutputStream(fileOut).use { zipStream ->
-                    documents.forEach { doc ->
-                        info.status = FileDownloadStatus.PROGRESS
-                        downloadInfoRepository.save(info)
-                        sseEmitterService.emitToAll(info.toDTO())
-                        val replacements = doc.sample.fields.mapNotNull { field ->
-                            doc.values.find { it.field.id == field.id }
-                                ?.let { value -> field.keyName to (value.field.fieldReplaceType to value.value) }
-                        }.toMap()
+            // ========================
+            // CACHES
+            // ========================
+            val fileCache = mutableMapOf<String, ByteArray>()
+            val converterCache = mutableMapOf<String, FormatConverter?>()
+            val exporter = exporters.find { it.supports(info.format.lowercase()) }
+                ?: return CompletableFuture.completedFuture(null)
 
-                        val originalFile = fileUtils.getFile(doc.sample.filePath)
-                        if (!originalFile.exists()) return@forEach
+            val total = documents.size
+            var processed = 0
+            var lastReportedBucket = -1
 
-                        val originalBytes = originalFile.readBytes()
+            // ========================
+            // Thread pool
+            // ========================
+            val executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors())
 
-                        val ext = doc.sample.filePath.substringAfterLast('.', "").lowercase()
-                        val docxBytes = if (ext == "docx") {
-                            originalBytes
-                        } else {
-                            formatConverters.find { it.supports(ext) }
-                                ?.toFormat(originalBytes) ?: originalBytes
+            // ========================
+            // Parallel hujjat tayyorlash
+            // ========================
+            val futures = documents.map { doc ->
+                CompletableFuture.supplyAsync({
+                    // --- replacements ---
+                    val replacements = doc.sample.fields.mapNotNull { field ->
+                        doc.values.find { it.field.id == field.id }?.let { v ->
+                            field.keyName to (v.field.fieldReplaceType to v.value)
                         }
+                    }.toMap()
 
-                        val replacedDocx = factory.replaceFile(ByteArrayInputStream(docxBytes), replacements)
-                        val exporter = exporters.find { it.supports(info.format.lowercase()) } ?: return@forEach
-                        val exportedBytes = exporter.export(replacedDocx, replacements)
+                    // --- original bytes (cache) ---
+                    val samplePath = doc.sample.filePath
+                    val originalBytes = fileCache.getOrPut(samplePath) {
+                        val f = fileUtils.getFile(samplePath)
+                        if (!f.exists()) return@supplyAsync null
+                        f.readBytes()
+                    }
 
-                        val entry = ZipEntry("${doc.name}.${info.format.lowercase()}")
-                        zipStream.putNextEntry(entry)
-                        zipStream.write(exportedBytes)
-                        zipStream.closeEntry()
+                    val ext = samplePath.substringAfterLast('.', "").lowercase()
+                    val docxBytes = if (ext == "docx") originalBytes
+                    else {
+                        val conv = converterCache.getOrPut(ext) { formatConverters.find { it.supports(ext) } }
+                        conv?.toFormat(originalBytes) ?: originalBytes
+                    }
+
+                    val replacedDocx = factory.replaceFile(ByteArrayInputStream(docxBytes), replacements)
+                    val exportedBytes = exporter.export(replacedDocx, replacements)
+
+                    Pair(doc, exportedBytes)
+                }, executor)
+            }
+
+            FileOutputStream(zipPath.toFile()).use { fos ->
+                BufferedOutputStream(fos).use { bos ->
+                    ZipOutputStream(bos).use { zipStream ->
+                        zipStream.setLevel(Deflater.BEST_SPEED)
+                        futures.forEach { future ->
+                            val (doc, exportedBytes) = future.join() ?: return@forEach
+                            val entry = ZipEntry("${doc.name}.${info.format.lowercase()}")
+                            zipStream.putNextEntry(entry)
+                            zipStream.write(exportedBytes)
+                            zipStream.closeEntry()
+
+
+                            processed++
+                            val bucket = (processed * 10) / total
+                            if (bucket > lastReportedBucket) {
+                                lastReportedBucket = bucket
+                                info.status = FileDownloadStatus.PROGRESS
+                                downloadInfoRepository.save(info)
+                            }
+                        }
                     }
                 }
             }
+
 
             val updatedInfo = downloadInfoRepository.findByIdAndDeletedFalse(downloadInfoId)
                 ?: return CompletableFuture.completedFuture(null)
 
             updatedInfo.status = FileDownloadStatus.DOWNLOADED
-            sseEmitterService.emitToAll(info.toDTO())
             updatedInfo.path = zipPath.toString()
             downloadInfoRepository.save(updatedInfo)
 
@@ -713,6 +735,180 @@ class DownloadWorker(
 
         return CompletableFuture.completedFuture(null)
     }
+
+
+//    @Async
+//    @Transactional(propagation = Propagation.REQUIRES_NEW)
+//    fun createZipAsync(downloadInfoId: Long, documents: List<Documentation>): CompletableFuture<Void> {
+//        val info = waitForDownloadInfo(downloadInfoId)
+//            ?: return CompletableFuture.completedFuture(null)
+//
+//        try {
+//            info.status = FileDownloadStatus.DOWNLOADING
+//            downloadInfoRepository.save(info)
+//
+//            val baseDir = Paths.get("uploads", "downloads")
+//            Files.createDirectories(baseDir)
+//
+//            val zipFileName = "documents_${UUID.randomUUID()}.zip"
+//            val zipPath = baseDir.resolve(zipFileName)
+//
+//            // CACHES
+//            val fileCache = mutableMapOf<String, ByteArray>()
+//            val converterCache = mutableMapOf<String, FormatConverter?>()
+//            val exporter = exporters.find { it.supports(info.format.lowercase()) }
+//                ?: return CompletableFuture.completedFuture(null)
+//
+//            // PROGRESS throttling
+//            val total = documents.size
+//            var processed = 0
+//            var lastReportedBucket = -1 // har 10% da xabar beramiz
+//
+//            FileOutputStream(zipPath.toFile()).use { fos ->
+//                BufferedOutputStream(fos).use { bos ->
+//                    ZipOutputStream(bos).use { zipStream ->
+//                        zipStream.setLevel(Deflater.BEST_SPEED)
+//                        documents.forEach { doc ->
+//                            // replacements
+//                            val replacements = doc.sample.fields.mapNotNull { field ->
+//                                doc.values.find { it.field.id == field.id }?.let { v ->
+//                                    field.keyName to (v.field.fieldReplaceType to v.value)
+//                                }
+//                            }.toMap()
+//
+//                            // original bytes (cached)
+//                            val samplePath = doc.sample.filePath
+//                            val originalBytes = fileCache.getOrPut(samplePath) {
+//                                val f = fileUtils.getFile(samplePath)
+//                                if (!f.exists()) return@forEach
+//                                f.readBytes()
+//                            }
+//
+//                            // convert to docx if needed (cached converter)
+//                            val ext = samplePath.substringAfterLast('.', "").lowercase()
+//                            val docxBytes =
+//                                if (ext == "docx") originalBytes
+//                                else {
+//                                    val conv = converterCache.getOrPut(ext) {
+//                                        formatConverters.find { it.supports(ext) }
+//                                    }
+//                                    conv?.toFormat(originalBytes) ?: originalBytes
+//                                }
+//
+//                            // replace & export
+//                            val replacedDocx = factory.replaceFile(ByteArrayInputStream(docxBytes), replacements)
+//                            val exportedBytes = exporter.export(replacedDocx, replacements)
+//
+//                            // zip write
+//                            val entry = ZipEntry("${doc.name}.${info.format.lowercase()}")
+//                            zipStream.putNextEntry(entry)
+//                            zipStream.write(exportedBytes)
+//                            zipStream.closeEntry()
+//
+//                            // throttled progress (har ~10% da)
+//                            processed++
+//                            val bucket = (processed * 10) / total // 0..10
+//                            if (bucket > lastReportedBucket) {
+//                                lastReportedBucket = bucket
+//                                info.status = FileDownloadStatus.PROGRESS
+//                                downloadInfoRepository.save(info)
+//                            }
+//                        }
+//                    }
+//                }
+//            }
+//
+//            val updatedInfo = downloadInfoRepository.findByIdAndDeletedFalse(downloadInfoId)
+//                ?: return CompletableFuture.completedFuture(null)
+//
+//            updatedInfo.status = FileDownloadStatus.DOWNLOADED
+//            updatedInfo.path = zipPath.toString()
+//            downloadInfoRepository.save(updatedInfo)
+//
+//        } catch (ex: Exception) {
+//            val failedInfo = downloadInfoRepository.findByIdAndDeletedFalse(downloadInfoId)
+//                ?: return CompletableFuture.completedFuture(null)
+//
+//            failedInfo.status = FileDownloadStatus.ERROR
+//            failedInfo.path = null
+//            log.error("❌ Zip Error: ${ex.message}", ex)
+//            downloadInfoRepository.save(failedInfo)
+//        }
+//
+//        return CompletableFuture.completedFuture(null)
+//    }
+
+//    @Async
+//    @Transactional(propagation = Propagation.REQUIRES_NEW)
+//    fun createZipAsync(downloadInfoId: Long, documents: List<Documentation>): CompletableFuture<Void> {
+//        val info = waitForDownloadInfo(downloadInfoId)
+//            ?: return CompletableFuture.completedFuture(null)
+//
+//        try {
+//            info.status = FileDownloadStatus.DOWNLOADING
+//            downloadInfoRepository.save(info)
+//
+//            val baseDir = Paths.get("uploads", "downloads")
+//            Files.createDirectories(baseDir)
+//
+//            val zipFileName = "documents_${UUID.randomUUID()}.zip"
+//            val zipPath = baseDir.resolve(zipFileName)
+//
+//            FileOutputStream(zipPath.toFile()).use { fileOut ->
+//                ZipOutputStream(fileOut).use { zipStream ->
+//                    documents.forEach { doc ->
+//                        info.status = FileDownloadStatus.PROGRESS
+//                        downloadInfoRepository.save(info)
+//                        val replacements = doc.sample.fields.mapNotNull { field ->
+//                            doc.values.find { it.field.id == field.id }
+//                                ?.let { value -> field.keyName to (value.field.fieldReplaceType to value.value) }
+//                        }.toMap()
+//
+//                        val originalFile = fileUtils.getFile(doc.sample.filePath)
+//                        if (!originalFile.exists()) return@forEach
+//
+//                        val originalBytes = originalFile.readBytes()
+//
+//                        val ext = doc.sample.filePath.substringAfterLast('.', "").lowercase()
+//                        val docxBytes = if (ext == "docx") {
+//                            originalBytes
+//                        } else {
+//                            formatConverters.find { it.supports(ext) }
+//                                ?.toFormat(originalBytes) ?: originalBytes
+//                        }
+//
+//                        val replacedDocx = factory.replaceFile(ByteArrayInputStream(docxBytes), replacements)
+//                        val exporter = exporters.find { it.supports(info.format.lowercase()) } ?: return@forEach
+//                        val exportedBytes = exporter.export(replacedDocx, replacements)
+//
+//                        val entry = ZipEntry("${doc.name}.${info.format.lowercase()}")
+//                        zipStream.putNextEntry(entry)
+//                        zipStream.write(exportedBytes)
+//                        zipStream.closeEntry()
+//                    }
+//                }
+//            }
+//
+//            val updatedInfo = downloadInfoRepository.findByIdAndDeletedFalse(downloadInfoId)
+//                ?: return CompletableFuture.completedFuture(null)
+//
+//            updatedInfo.status = FileDownloadStatus.DOWNLOADED
+//            updatedInfo.path = zipPath.toString()
+//            downloadInfoRepository.save(updatedInfo)
+//
+//        } catch (ex: Exception) {
+//            val failedInfo = downloadInfoRepository.findByIdAndDeletedFalse(downloadInfoId)
+//                ?: return CompletableFuture.completedFuture(null)
+//
+//            failedInfo.status = FileDownloadStatus.ERROR
+//            failedInfo.path = null
+//            log.error("❌ Zip Error: ${ex.message}", ex)
+//            downloadInfoRepository.save(failedInfo)
+//        }
+//
+//        return CompletableFuture.completedFuture(null)
+//    }
+
 
 
     fun waitForDownloadInfo(downloadInfoId: Long, maxRetries: Int = 10, delayMs: Long = 500): DownloadInfo? {

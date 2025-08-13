@@ -1,5 +1,6 @@
 package uz.shukrullaev.com.sample
 
+import jakarta.validation.Valid
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.web.PageableDefault
@@ -9,7 +10,6 @@ import org.springframework.http.ResponseEntity
 import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import uz.shukrullaev.com.sample.*
 
 
@@ -34,10 +34,6 @@ class OrganizationController(
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN')")
     fun update(@PathVariable id: Long, @RequestBody dto: OrganizationRequestDto) =
         organizationService.update(id, dto)
-
-    @GetMapping("{id}")
-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_DIRECTOR')")
-    fun get(@PathVariable id: Long) = organizationService.get(id)
 
     @DeleteMapping("{id}")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_DIRECTOR')")
@@ -65,13 +61,13 @@ class UserController(
     private val authService: AuthService,
 ) {
     @PostMapping("auth/registration")
-    fun registration(@RequestBody userRequestDto: UserRequestDto): UserResponseDto {
+    fun registration(@Valid @RequestBody userRequestDto: UserRequestDto): UserResponseDto {
         return authService.registration(userRequestDto)
     }
 
     @PostMapping
     @PreAuthorize("hasAnyAuthority('ROLE_DIRECTOR', 'ROLE_ADMIN')")
-    fun create(@RequestBody userRequestDto: UserRequestDto): UserResponseDto {
+    fun create(@Valid @RequestBody userRequestDto: UserRequestDto): UserResponseDto {
         return userService.create(userRequestDto)
     }
 
@@ -84,9 +80,6 @@ class UserController(
     @PreAuthorize("hasAnyAuthority('ROLE_DIRECTOR', 'ROLE_ADMIN','ROLE_OPERATOR')")
     fun update(@PathVariable id: Long, @RequestBody dto: UserRequestForUpdateDto) = userService.update(id, dto)
 
-    @GetMapping("{id}")
-    fun get(@PathVariable id: Long) = userService.get(id)
-
     @GetMapping("me")
     fun me() = authService.me()
 
@@ -94,6 +87,7 @@ class UserController(
     @PostMapping("set-password")
     fun changePassword(@RequestParam oldPassword: String, @RequestParam newPassword: String) =
         authService.changePassword(oldPassword, newPassword)
+
     @PostMapping("set-password-admin")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN')")
     fun changePasswordForAdmin(@RequestParam username: String, @RequestParam password: String) =
@@ -140,26 +134,10 @@ class SampleController(
     private val sampleService: SampleService,
 ) {
 
-    @PostMapping
-    @PreAuthorize("hasAnyAuthority('ROLE_DIRECTOR', 'ROLE_OPERATOR')")
-    fun create(@RequestBody dto: SampleRequestDto): ResponseEntity<SampleResponseDto> {
-        return ResponseEntity.ok(sampleService.create(dto))
-    }
-
-    @PutMapping("{id}")
-    @PreAuthorize("hasAnyAuthority('ROLE_OPERATOR') && @samplePermissionService.hasPermission(authentication.principal.id, #id, T(uz.shukrullaev.com.sample.Permissions).UPDATE) || hasAnyAuthority('ROLE_DIRECTOR')")
-    fun update(
-        @PathVariable id: Long,
-        @RequestBody dto: SampleRequestDto,
-    ): SampleResponseDto {
-        return sampleService.update(id, dto)
-    }
-
     @GetMapping("{id}")
     fun get(@PathVariable id: Long): SampleResponseDto {
         return sampleService.get(id)
     }
-
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyAuthority('ROLE_OPERATOR') && @samplePermissionService.hasPermission(authentication.principal.id, #id, T(uz.shukrullaev.com.sample.Permissions).DELETE) || hasAnyAuthority('ROLE_DIRECTOR')")
     fun delete(@PathVariable id: Long): ResponseEntity<Void> {
@@ -171,36 +149,10 @@ class SampleController(
     fun getAll(
         pageable: Pageable,
         @RequestParam search: String?,
+        @RequestParam allowContractCreation: Boolean?,
         @RequestParam orderDirection: OrderDirection?,
     ): Page<SampleResponseDto> {
-        return sampleService.getAll(search, orderDirection, pageable)
-    }
-
-    @PostMapping("{sampleId}/fields")
-    fun addField(
-        @PathVariable sampleId: Long,
-        @RequestBody dto: SampleFieldRequestDto,
-    ): SampleFieldResponseDto {
-        return sampleService.addField(sampleId, dto)
-    }
-
-    @PutMapping("fields/{fieldId}")
-    fun updateField(
-        @PathVariable fieldId: Long,
-        @RequestBody dto: SampleFieldRequestDto,
-    ): SampleFieldResponseDto {
-        return sampleService.updateField(fieldId, dto)
-    }
-
-    @DeleteMapping("fields/{fieldId}")
-    fun deleteField(@PathVariable fieldId: Long): ResponseEntity<Void> {
-        sampleService.deleteField(fieldId)
-        return ResponseEntity.noContent().build()
-    }
-
-    @GetMapping("{sampleId}/fields")
-    fun getFieldsBySampleId(@PathVariable sampleId: Long): List<SampleFieldResponseDto> {
-        return sampleService.getFieldsBySampleId(sampleId)
+        return sampleService.getAll(search, allowContractCreation, orderDirection, pageable)
     }
 
     @PostMapping("upload", consumes = ["multipart/form-data"])
@@ -218,9 +170,9 @@ class SampleController(
         @PathVariable id: Long,
         @RequestParam("file") file: MultipartFile?,
         @RequestParam("name") name: String?,
-        @RequestParam("allowContractCreation") allowContractCreation : Boolean?
+        @RequestParam("allowContractCreation") allowContractCreation: Boolean?
     ): SampleResponseDto {
-        return sampleService.updateSampleFile(file, id, name, allowContractCreation )
+        return sampleService.updateSampleFile(file, id, name, allowContractCreation)
     }
 
     @GetMapping("show-sample/{id}")
@@ -238,7 +190,7 @@ class DocumentationController(
     private val documentationService: DocumentationService,
 ) {
 
-        @PostMapping("download/{docId}")
+    @PostMapping("download/{docId}")
     fun downloadFile(
         @PathVariable docId: Long,
         @RequestParam format: String,
@@ -292,50 +244,12 @@ class DocumentationController(
         return documentationService.getAll(search, organizationId, orderDirection, pageable)
     }
 
-    @GetMapping("sample/{sampleId}")
-    fun getBySampleId(
-        @PathVariable sampleId: Long,
-        pageable: Pageable,
-    ): Page<DocumentationResponseDto> {
-        return documentationService.getBySampleId(sampleId, pageable)
-    }
-
-    @PostMapping("{documentationId}/values/{fieldId}")
-    fun addValue(
-        @PathVariable documentationId: Long,
-        @PathVariable fieldId: Long,
-        @RequestParam value: String,
-    ): DocumentationValueResponseDto {
-        return documentationService.addValue(documentationId, fieldId, value)
-    }
-
-    @PutMapping("values/{valueId}")
-    fun updateValue(
-        @PathVariable valueId: Long,
-        @RequestParam newValue: String,
-    ): DocumentationValueResponseDto {
-        return documentationService.updateValue(valueId, newValue)
-    }
-
-    @GetMapping("{documentationId}/values")
-    fun getValuesByDocumentationId(
-        @PathVariable documentationId: Long,
-    ): List<DocumentationValueResponseDto> {
-        return documentationService.getValuesByDocumentationId(documentationId)
-    }
-
-    @GetMapping("{documentationId}/audit")
-    fun getAuditInfo(@PathVariable documentationId: Long): AuditInfoDto {
-        return documentationService.getAuditInfo(documentationId)
-    }
-
 }
 
 @RestController
 @RequestMapping("api/download-info")
 class DownloadInfoController(
     private val downloadInfoService: DownloadInfoService,
-    private val sseEmitterService: SseEmitterService
 ) {
 
     @GetMapping
@@ -353,11 +267,6 @@ class DownloadInfoController(
     ): List<DocumentationResponseDto> {
         return downloadInfoService.getDocumentsByDownloadInfoId(infoId)
     }
-
-//    @GetMapping("{id}/status-stream", produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
-//    fun streamStatus(@PathVariable id: Long): SseEmitter {
-//        return sseEmitterService.createEmitter(id)
-//    }
 
     @GetMapping("{infoId}/download")
     fun downloadFilesByDownloadInfoId(
@@ -377,13 +286,8 @@ class DownloadInfoController(
         return downloadInfoService.createDownloadInfo(request)
     }
 
-    @GetMapping("/stream", produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
-    fun streamAll(): SseEmitter {
-        return sseEmitterService.register()
-    }
-
     @DeleteMapping("{infoId}")
-    fun deleteDownloadInfo(@PathVariable infoId: Long){
+    fun deleteDownloadInfo(@PathVariable infoId: Long) {
         downloadInfoService.deleteById(infoId)
     }
 }

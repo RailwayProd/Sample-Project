@@ -69,7 +69,9 @@ class WebMvcConfigure : WebMvcConfigurer {
                 "https://9341394f7f65.ngrok-free.app",
                 "http://localhost:3004",
                 "http://172.20.16.1:3004",
-                "https://contracts-demo.netlify.app"
+                "https://contracts-demo.netlify.app",
+                "https://fc33035a73f8.ngrok-free.app",
+                "http://192.168.0.161:3004"
             )
             .allowedMethods("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")
             .allowedHeaders("*")
