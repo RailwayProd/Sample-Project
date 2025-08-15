@@ -103,8 +103,7 @@ class SecurityConfig(private val messageSource: MessageSource) {
             .csrf { it.disable() }
             .authorizeHttpRequests {
                 it.requestMatchers(
-                    "/api/users/auth/**",
-                    "/api/download-info/stream"
+                    "/api/users/auth/**"
                 ).permitAll()
                 it.anyRequest().authenticated()
             }

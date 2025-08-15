@@ -1120,6 +1120,8 @@ class DownloadInfoServiceImpl(
         return downloadInfoRepository.findAll(spec, pageable)
             .map { it.toDTO() }
     }
+
+    @Transactional(readOnly = true)
     override fun getDocumentsByDownloadInfoId(downloadInfoId: Long): List<DocumentationResponseDto> {
         val info = downloadInfoRepository.findByIdAndDeletedFalse(downloadInfoId)
             ?: throw ObjectIdNotFoundException(downloadInfoId)

@@ -313,7 +313,7 @@ class ExtractorFieldExecutor {
             .map { it.trim() }
             .filter { it.length < 64 }
             .filterNot { it.all { c -> c == '-' } }
-            .filterNot { it.count { c -> c == '-' } > 10 }
+            .filterNot { it.count { c -> c == '-' } > 5 }
             .toSet()
 
         val allFields = mutableListOf<SampleField>()
@@ -652,24 +652,20 @@ class DownloadWorker(
             var processed = 0
             var lastReportedBucket = -1
 
-            // ========================
-            // Thread pool
-            // ========================
+
             val executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors())
 
-            // ========================
-            // Parallel hujjat tayyorlash
-            // ========================
+
             val futures = documents.map { doc ->
                 CompletableFuture.supplyAsync({
-                    // --- replacements ---
+
                     val replacements = doc.sample.fields.mapNotNull { field ->
                         doc.values.find { it.field.id == field.id }?.let { v ->
                             field.keyName to (v.field.fieldReplaceType to v.value)
                         }
                     }.toMap()
 
-                    // --- original bytes (cache) ---
+
                     val samplePath = doc.sample.filePath
                     val originalBytes = fileCache.getOrPut(samplePath) {
                         val f = fileUtils.getFile(samplePath)
