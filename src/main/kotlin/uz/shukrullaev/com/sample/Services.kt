@@ -872,6 +872,8 @@ class DocumentationServiceImpl(
     private val exporters: List<Exporter>
 ) : DocumentationService {
 
+
+    @Transactional(readOnly = true)
     override fun downloadFile(documentationId: Long, format: String): ByteArray {
         val documentation = documentationRepository.findByIdAndDeletedFalse(documentationId)
             ?: throw ObjectIdNotFoundException(documentationId)
